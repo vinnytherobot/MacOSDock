@@ -36,7 +36,7 @@ jobs:
           cp metadata.json dist/
           cp stylesheet.css dist/
           mkdir -p dist/schemas
-          cp -r schemas/*.compiled dist/schemas/
+          cp schemas/*.gschema.xml dist/schemas/
           cd dist && zip -r "../${UUID}.v${VERSION}.zip" . -x '*.map'
 
       - name: Upload zip to release

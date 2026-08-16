@@ -20,8 +20,10 @@ install: build
 	@echo "Installed. Restart Shell (Alt+F2 → r) or re-login."
 
 zip: build
+	@cp metadata.json dist/
+	@cp stylesheet.css dist/
 	@mkdir -p dist/schemas
-	@cp -r schemas/*.compiled dist/schemas/ 2>/dev/null || true
+	@cp schemas/*.gschema.xml dist/schemas/
 	@cd dist && zip -r ../$(UUID).v$(VERSION).zip . -x '*.map'
 	@echo "Created $(UUID).v$(VERSION).zip"
 
