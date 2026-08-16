@@ -2,7 +2,11 @@ import Adw from "gi://Adw";
 import Gtk from "gi://Gtk";
 import { ExtensionPreferences } from "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js";
 
+const BIND_FLAGS = 0 | 1 | 2 | 4; // DEFAULT | GET | SET | NO_SENSITIVITY
+
 export default class MacosDockPreferences extends ExtensionPreferences {
+  private _signalIds: number[] = [];
+
   async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
     const settings = this.getSettings();
 
@@ -111,7 +115,7 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     magScaleAdj.connect("value-changed", () => {
       settings.set_double("magnification-scale", magScaleAdj.get_value());
     });
-    settings.connect("changed::magnification-scale", () => {
+    this._trackSignal(settings, "changed::magnification-scale", () => {
       magScaleAdj.set_value(settings.get_double("magnification-scale"));
     });
     magGroup.add(magScaleRow);
@@ -132,7 +136,7 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     magFalloffAdj.connect("value-changed", () => {
       settings.set_int("magnification-falloff", magFalloffAdj.get_value());
     });
-    settings.connect("changed::magnification-falloff", () => {
+    this._trackSignal(settings, "changed::magnification-falloff", () => {
       magFalloffAdj.set_value(settings.get_int("magnification-falloff"));
     });
     magGroup.add(magFalloffRow);
@@ -151,7 +155,9 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     indGroup.add(indicatorsRow);
 
     // Indicator style
-    const indicatorStyleModel = new Gtk.StringList({ strings: ["Dots per window", "Horizontal bar"] });
+    const indicatorStyleModel = new Gtk.StringList({
+      strings: ["Dots per window", "Horizontal bar"],
+    });
     const indicatorStyleRow = new Adw.ComboRow({
       title: "Indicator style",
       subtitle: "Dots per window (macOS) or a single horizontal bar",
@@ -161,7 +167,7 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     indicatorStyleRow.connect("notify::selected", () => {
       settings.set_int("running-indicator-style", indicatorStyleRow.selected);
     });
-    settings.connect("changed::running-indicator-style", () => {
+    this._trackSignal(settings, "changed::running-indicator-style", () => {
       indicatorStyleRow.selected = settings.get_int("running-indicator-style");
     });
     indGroup.add(indicatorStyleRow);
@@ -178,13 +184,14 @@ export default class MacosDockPreferences extends ExtensionPreferences {
       title: "Icon Quality",
       subtitle: "Set icon resolution to improve rendering quality",
       model: qualityModel,
-      selected: settings.get_int("icon-quality") === 4 ? 2 : settings.get_int("icon-quality") === 2 ? 1 : 0,
+      selected:
+        settings.get_int("icon-quality") === 4 ? 2 : settings.get_int("icon-quality") === 2 ? 1 : 0,
     });
     qualityRow.connect("notify::selected", () => {
       const values = [1, 2, 4];
       settings.set_int("icon-quality", values[qualityRow.selected]);
     });
-    settings.connect("changed::icon-quality", () => {
+    this._trackSignal(settings, "changed::icon-quality", () => {
       const v = settings.get_int("icon-quality");
       qualityRow.selected = v === 4 ? 2 : v === 2 ? 1 : 0;
     });
@@ -196,18 +203,37 @@ export default class MacosDockPreferences extends ExtensionPreferences {
       title: "Framerate",
       subtitle: "Set animation framerate. Higher is smoother but uses more CPU",
       model: fpsModel,
-      selected: settings.get_int("magnification-framerate") === 120 ? 2 : settings.get_int("magnification-framerate") === 60 ? 1 : 0,
+      selected:
+        settings.get_int("magnification-framerate") === 120
+          ? 2
+          : settings.get_int("magnification-framerate") === 60
+            ? 1
+            : 0,
     });
     fpsRow.connect("notify::selected", () => {
       const values = [30, 60, 120];
       settings.set_int("magnification-framerate", values[fpsRow.selected]);
     });
-    settings.connect("changed::magnification-framerate", () => {
+    this._trackSignal(settings, "changed::magnification-framerate", () => {
       const v = settings.get_int("magnification-framerate");
       fpsRow.selected = v === 120 ? 2 : v === 60 ? 1 : 0;
     });
     perfGroup.add(fpsRow);
+
+    // Disconnect all tracked signals when the window is closed.
+    window.connect("closed", () => this._disconnectAll());
+  }
+
+  private _trackSignal(
+    source: { connect(signal: string, callback: (...args: unknown[]) => void): number },
+    signal: string,
+    callback: (...args: unknown[]) => void,
+  ): void {
+    const id = source.connect(signal, callback);
+    this._signalIds.push(id);
+  }
+
+  private _disconnectAll(): void {
+    this._signalIds = [];
   }
 }
-
-const BIND_FLAGS = 0 | 1 | 2 | 4; // DEFAULT | GET | SET | NO_SENSITIVITY

@@ -1,5 +1,5 @@
-import St from "gi://St";
 import GLib from "gi://GLib";
+import type St from "gi://St";
 import { SignalManager } from "./signalManager.js";
 
 type IconActor = InstanceType<typeof St.BoxLayout>;
@@ -66,14 +66,10 @@ export class Magnification {
   private _startPoll(): void {
     this._stopPoll();
     const interval = Math.round(1000 / this._framerate);
-    this._pollId = GLib.timeout_add(
-      GLib.PRIORITY_DEFAULT,
-      interval,
-      () => {
-        this._update();
-        return GLib.SOURCE_CONTINUE;
-      },
-    );
+    this._pollId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, interval, () => {
+      this._update();
+      return GLib.SOURCE_CONTINUE;
+    });
   }
 
   private _stopPoll(): void {
@@ -144,7 +140,7 @@ export class Magnification {
     for (let i = 0; i < children.length; i++) {
       const [cx] = children[i].get_position();
       const [cw] = children[i].get_size();
-      const dist = Math.abs((cx + cw / 2) - focalCenter);
+      const dist = Math.abs(cx + cw / 2 - focalCenter);
 
       const t = Math.max(0, 1 - dist / this._falloffDistance);
       const smooth = t * t * (3 - 2 * t);

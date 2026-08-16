@@ -7,7 +7,6 @@ export default class MacosDockExtension extends Extension {
   enable(): void {
     this._dockManager = new DockManager();
     this._dockManager.enable(this.getSettings());
-    console.log(`[macos-dock] Enabled (v${this.metadata.version})`);
   }
 
   disable(): void {
@@ -15,6 +14,5 @@ export default class MacosDockExtension extends Extension {
       this._dockManager.disable();
       this._dockManager = null;
     }
-    console.log("[macos-dock] Disabled");
   }
 }

@@ -1,11 +1,14 @@
 UUID = macos-dock@vinnytherobot.github.io
 INSTALL_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 
-.PHONY: build install clean
+.PHONY: build install clean lint
 
 build:
 	npm run build
 	glib-compile-schemas schemas/
+
+lint:
+	npx biome check src/
 
 install: build
 	mkdir -p $(INSTALL_DIR)
