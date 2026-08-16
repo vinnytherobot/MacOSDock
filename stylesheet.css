@@ -1,0 +1,42 @@
+/* macOS-style dock stylesheet */
+
+.macos-dock-container {
+  background-color: rgba(30, 30, 30, 0.6);
+  border-radius: 16px;
+  padding: 4px 10px;
+  spacing: 6px;
+}
+
+.macos-dock-icon {
+  pivot-point: 0.5 1;
+  padding-bottom: 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.macos-dock-icon:hover {
+  background: transparent;
+}
+
+.macos-dock-icon-gicon {
+  icon-shadow: 0 2px 3px rgba(0, 0, 0, 0.4);
+}
+
+.macos-dock-indicator-box {
+  spacing: 3px;
+  margin-top: 2px;
+}
+
+.macos-dock-indicator-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 2px;
+  background-color: rgba(255, 255, 255, 0.85);
+}
+
+.macos-dock-indicator-bar {
+  width: 16px;
+  height: 3px;
+  border-radius: 1.5px;
+  background-color: rgba(255, 255, 255, 0.85);
+}

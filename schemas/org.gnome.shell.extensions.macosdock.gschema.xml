@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.macosdock"
+          path="/org/gnome/shell/extensions/macosdock/">
+    <key name="icon-size" type="i">
+      <default>48</default>
+      <summary>Icon size</summary>
+      <description>Size of dock icons in pixels (16-96)</description>
+    </key>
+    <key name="auto-hide" type="b">
+      <default>true</default>
+      <summary>Auto-hide</summary>
+      <description>Whether to auto-hide the dock when the pointer moves away</description>
+    </key>
+    <key name="magnification-enabled" type="b">
+      <default>true</default>
+      <summary>Enable magnification</summary>
+      <description>Whether icons grow when the pointer hovers near the dock</description>
+    </key>
+    <key name="magnification-scale" type="d">
+      <default>1.4</default>
+      <summary>Magnification max scale</summary>
+      <description>Maximum scale applied to the icon directly under the cursor (1.0 = no magnification)</description>
+    </key>
+    <key name="magnification-falloff" type="i">
+      <default>100</default>
+      <summary>Magnification falloff distance</summary>
+      <description>How far (in pixels) the magnification wave reaches from the cursor</description>
+    </key>
+    <key name="running-indicators" type="b">
+      <default>true</default>
+      <summary>Show running indicators</summary>
+      <description>Show a small dot under icons of running apps</description>
+    </key>
+    <key name="running-indicator-style" type="i">
+      <default>0</default>
+      <summary>Running indicator style</summary>
+      <description>0 = dots per window (macOS style), 1 = horizontal bar</description>
+    </key>
+    <key name="bounce-on-launch" type="b">
+      <default>true</default>
+      <summary>Bounce on launch</summary>
+      <description>Play a bounce animation on the dock icon when a new app is launched</description>
+    </key>
+    <key name="animation-duration" type="i">
+      <default>200</default>
+      <summary>Animation duration</summary>
+      <description>Duration of the show/hide animation in milliseconds (0 = instant, max 1000)</description>
+    </key>
+    <key name="magnification-framerate" type="i">
+      <default>60</default>
+      <summary>Magnification framerate</summary>
+      <description>Target framerate for magnification animation in Hz (30, 60, or 120)</description>
+    </key>
+    <key name="icon-quality" type="i">
+      <default>2</default>
+      <summary>Icon quality multiplier</summary>
+      <description>Render icons at N times native resolution to prevent blur when magnified (1, 2, or 4)</description>
+    </key>
+  </schema>
+</schemalist>

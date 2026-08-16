@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.js.map
+schemas/*.compiled
+
+# AI
+.mimocode
+.claude
+.gemini
+.cursor
+.orion
