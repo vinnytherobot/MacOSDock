@@ -218,6 +218,7 @@ export class DockManager {
       this._intellihide = null;
     }
     if (this._container) {
+      this._container.visible = true;
       this._updatePosition();
     }
   }
