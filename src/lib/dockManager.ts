@@ -148,6 +148,11 @@ export class DockManager {
         this._iconManager.setIndicatorStyle(settings.get_int("running-indicator-style"));
       }
     });
+    this._signals.connect(settings, "changed::show-threshold", () => {
+      if (this._visibility && settings.get_boolean("auto-hide")) {
+        this._startAutoHide();
+      }
+    });
 
     if (settings.get_boolean("auto-hide")) {
       this._startAutoHide();
