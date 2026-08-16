@@ -2,6 +2,7 @@ import St from "gi://St";
 import Clutter from "gi://Clutter";
 import Shell from "gi://Shell";
 import Gio from "gi://Gio";
+import GLib from "gi://GLib";
 import { SignalManager } from "./signalManager.js";
 
 export type DockIconClicked = (app: Shell.App) => void;
@@ -178,6 +179,14 @@ export class IconManager {
   }
 
   private _onWindowChange(): void {
+    // Delay to ensure window is fully initialized before checking.
+    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+      this._doWindowChange();
+      return GLib.SOURCE_REMOVE;
+    });
+  }
+
+  private _doWindowChange(): void {
     // Track which apps are running right now. We add/remove icons as
     // needed so non-favorite running apps still appear (and disappear
     // when their last window closes).
@@ -299,13 +308,12 @@ export class IconManager {
       return;
     }
 
-    // Count visible windows for this app.
+    // Count all windows for this app (including minimized).
     let windowCount = 0;
     const actors = global.get_window_actors();
     for (const wa of actors) {
       const mw = wa.get_meta_window();
       if (!mw) continue;
-      if (!mw.showing_on_its_workspace()) continue;
       if (tracker.get_window_app(mw) === app) {
         windowCount++;
       }
@@ -319,6 +327,9 @@ export class IconManager {
     }
 
     indicatorBox.visible = true;
+
+    // Clear all children before adding new style.
+    indicatorBox.remove_all_children();
 
     if (this._indicatorStyle === 0) {
       // Dots per window (macOS style).
@@ -337,8 +348,7 @@ export class IconManager {
         indicatorBox.get_child_at_index(last)?.destroy();
       }
     } else {
-      // Horizontal bar style — clear any dots, show single bar.
-      indicatorBox.remove_all_children();
+      // Horizontal bar style.
       const bar = new St.Widget({
         style_class: "macos-dock-indicator-bar",
       });

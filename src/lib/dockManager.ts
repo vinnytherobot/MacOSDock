@@ -20,6 +20,7 @@ export class DockManager {
   private _settings: Gio.Settings | null = null;
   private _lastFocusedApp: Shell.App | null = null;
   private _recentlyLaunched: Set<string> = new Set();
+  private _originalDashVisible?: boolean;
 
   private static readonly MARGIN_BOTTOM = 12;
   private static readonly DOCK_HEIGHT = 60;
@@ -32,6 +33,9 @@ export class DockManager {
 
   enable(settings: Gio.Settings): void {
     this._settings = settings;
+
+    // Hide the default GNOME dash to avoid conflict.
+    this._hideDefaultDash();
 
     this._container = new St.BoxLayout({
       style_class: "macos-dock-container",
@@ -190,6 +194,9 @@ export class DockManager {
       this._container = null;
     }
 
+    // Restore the default GNOME dash.
+    this._showDefaultDash();
+
     this._settings = null;
     console.log("[macos-dock] DockManager disabled");
   }
@@ -233,10 +240,15 @@ export class DockManager {
     const firstWindow = this._findFirstWindow(app);
 
     if (firstWindow) {
-      if (firstWindow.has_focus() || firstWindow.minimized) {
+      if (firstWindow.has_focus() && !firstWindow.minimized) {
+        // Window is focused and visible — minimize it.
+        firstWindow.minimize();
+      } else if (firstWindow.minimized) {
+        // Window is minimized — restore and activate.
         firstWindow.unminimize();
         firstWindow.activate(global.get_current_time());
       } else {
+        // Window exists but not focused — activate it.
         firstWindow.activate(global.get_current_time());
       }
     } else {
@@ -319,6 +331,25 @@ export class DockManager {
         dockWidth,
         DockManager.DOCK_HEIGHT,
       );
+    }
+  }
+
+  private _hideDefaultDash(): void {
+    const dash = Main.overview.dash;
+    this._originalDashVisible = dash.visible;
+    dash.hide();
+    const dashSpacer = (dash as any)._dashSpacer;
+    if (dashSpacer) {
+      dashSpacer.visible = false;
+    }
+  }
+
+  private _showDefaultDash(): void {
+    const dash = Main.overview.dash;
+    dash.visible = this._originalDashVisible ?? true;
+    const dashSpacer = (dash as any)._dashSpacer;
+    if (dashSpacer) {
+      dashSpacer.visible = true;
     }
   }
 }

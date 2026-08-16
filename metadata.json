@@ -2,7 +2,7 @@
   "name": "MacOS Dock",
   "description": "A macOS-style dock for GNOME Shell with magnification and animations",
   "uuid": "macos-dock@vinnytherobot.github.io",
-  "shell-version": ["50"],
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
   "url": "https://github.com/vinnytherobot/MacOSDock",
   "version": 1,
   "settings-schema": "org.gnome.shell.extensions.macosdock"

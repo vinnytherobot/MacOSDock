@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Compile GSettings schemas
+        run: glib-compile-schemas schemas/
+
+      - name: Create release archive
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          mkdir -p release
+          cp -r dist/* release/ 2>/dev/null || true
+          cp metadata.json release/
+          cp stylesheet.css release/
+          cp -r schemas release/
+          cp LICENSE release/
+          cp README.md release/
+          cd release
+          tar -czf ../macos-dock-${VERSION}.tar.gz .
+          cd ..
+          zip -r macos-dock-${VERSION}.zip release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            macos-dock-*.tar.gz
+            macos-dock-*.zip
+          generate_release_notes: true
