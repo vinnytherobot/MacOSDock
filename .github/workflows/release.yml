@@ -33,6 +33,8 @@ jobs:
         run: |
           UUID=$(node -e "const m = require('./metadata.json'); console.log(m.uuid)")
           VERSION=$(node -e "const m = require('./metadata.json'); console.log(m.version)")
+          cp metadata.json dist/
+          cp stylesheet.css dist/
           mkdir -p dist/schemas
           cp -r schemas/*.compiled dist/schemas/
           cd dist && zip -r "../${UUID}.v${VERSION}.zip" . -x '*.map'
