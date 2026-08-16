@@ -233,7 +233,7 @@ export class IconManager {
 
     const icon = new St.Icon({
       gicon: app.get_icon(),
-      icon_size: this._iconSize * this._quality,
+      icon_size: this._iconSize,
       style_class: "macos-dock-icon-gicon",
     });
     actor.add_child(icon);
@@ -269,10 +269,7 @@ export class IconManager {
   private _applyIconSize(actor: IconActor): void {
     const icon = this._getStored<InstanceType<typeof St.Icon>>(actor, "icon");
     if (icon) {
-      // Render at high resolution for sharpness when magnified.
-      icon.set_icon_size(this._iconSize * this._quality);
-      // Constrain layout to visual size so it doesn't overflow.
-      icon.set_size(this._iconSize, this._iconSize);
+      icon.set_icon_size(this._iconSize);
     }
     const padded = this._iconSize + 12;
     actor.set_size(padded, padded + 4);
