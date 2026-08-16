@@ -9,9 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,31 +24,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build TypeScript
-        run: npm run build
-
-      - name: Compile GSettings schemas
-        run: glib-compile-schemas schemas/
-
-      - name: Create release archive
+      - name: Build extension
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          mkdir -p release
-          cp -r dist/* release/ 2>/dev/null || true
-          cp metadata.json release/
-          cp stylesheet.css release/
-          cp -r schemas release/
-          cp LICENSE release/
-          cp README.md release/
-          cd release
-          tar -czf ../macos-dock-${VERSION}.tar.gz .
-          cd ..
-          zip -r macos-dock-${VERSION}.zip release/
+          npm run build
+          glib-compile-schemas schemas/
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+      - name: Create extension zip
+        run: |
+          UUID=$(node -e "const m = require('./metadata.json'); console.log(m.uuid)")
+          VERSION=$(node -e "const m = require('./metadata.json'); console.log(m.version)")
+          mkdir -p dist/schemas
+          cp -r schemas/*.compiled dist/schemas/
+          cd dist && zip -r "../${UUID}.v${VERSION}.zip" . -x '*.map'
+
+      - name: Upload zip to release
+        uses: softprops/action-gh-release@v2
         with:
-          files: |
-            macos-dock-*.tar.gz
-            macos-dock-*.zip
+          files: "*.zip"
           generate_release_notes: true
