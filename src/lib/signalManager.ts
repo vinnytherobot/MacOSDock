@@ -11,11 +11,7 @@ type SignalSource = {
 export class SignalManager {
   private _connections: { source: SignalSource; signalId: number }[] = [];
 
-  connect(
-    source: SignalSource,
-    signal: string,
-    callback: (...args: unknown[]) => void,
-  ): number {
+  connect(source: SignalSource, signal: string, callback: (...args: unknown[]) => void): number {
     const id = source.connect(signal, callback);
     this._connections.push({ source, signalId: id });
     return id;

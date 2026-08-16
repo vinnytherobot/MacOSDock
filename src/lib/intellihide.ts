@@ -1,5 +1,4 @@
 import Shell from "gi://Shell";
-import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { SignalManager } from "./signalManager.js";
 
 export type OverlapStatus = boolean;
@@ -17,24 +16,12 @@ export class Intellihide {
   start(callback: (status: OverlapStatus) => void): void {
     this._onStatusChanged = callback;
 
-    this._signals.connect(
-      global.display,
-      "restacked",
-      () => this._checkOverlap(),
-    );
+    this._signals.connect(global.display, "restacked", () => this._checkOverlap());
 
-    this._signals.connect(
-      global.display,
-      "window-created",
-      () => this._checkOverlap(),
-    );
+    this._signals.connect(global.display, "window-created", () => this._checkOverlap());
 
     const tracker = Shell.WindowTracker.get_default();
-    this._signals.connect(
-      tracker,
-      "notify::focus-app",
-      () => this._checkOverlap(),
-    );
+    this._signals.connect(tracker, "notify::focus-app", () => this._checkOverlap());
 
     this._checkOverlap();
   }

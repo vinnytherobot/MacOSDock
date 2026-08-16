@@ -1,11 +1,11 @@
-import St from "gi://St";
 import Clutter from "gi://Clutter";
 import GLib from "gi://GLib";
+import type St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
-import { Intellihide, OverlapStatus } from "./intellihide.js";
+import type { Intellihide, OverlapStatus } from "./intellihide.js";
 import { SignalManager } from "./signalManager.js";
 
-const HIDE_THRESHOLD = 100;  // hide only when pointer is 100px+ above bottom
+const HIDE_THRESHOLD = 100; // hide only when pointer is 100px+ above bottom
 
 type Container = InstanceType<typeof St.BoxLayout>;
 
@@ -16,24 +16,21 @@ export class DockVisibility {
   private _isShown = false;
   private _isAnimating = false;
   private _monitor: { x: number; y: number; width: number; height: number } | null = null;
-  private _dockHeight: number;
-  private _marginBottom: number;
   private _animationDuration: number;
   private _showThreshold: number;
+  private _pollId: number | null = null;
 
   constructor(
     container: Container,
     intellihide: Intellihide,
-    dockHeight: number,
-    marginBottom: number,
+    _dockHeight: number,
+    _marginBottom: number,
     animationDuration: number = 200,
     showThreshold: number = 25,
   ) {
     this._signals = new SignalManager();
     this._container = container;
     this._intellihide = intellihide;
-    this._dockHeight = dockHeight;
-    this._marginBottom = marginBottom;
     this._animationDuration = animationDuration;
     this._showThreshold = showThreshold;
   }
@@ -41,15 +38,13 @@ export class DockVisibility {
   start(): void {
     this._monitor = Main.layoutManager.primaryMonitor;
     if (!this._monitor) {
-      console.log("[macos-dock] ERROR: no primary monitor");
+      console.error("[macos-dock] No primary monitor available");
       return;
     }
 
     // Hide the dock by making it invisible.
     this._container.visible = false;
     this._isShown = false;
-
-    console.log(`[macos-dock] DockVisibility started, show<${this._showThreshold}px, hide>${HIDE_THRESHOLD}px, animation=${this._animationDuration}ms`);
 
     this._intellihide.start((overlap: OverlapStatus) => {
       if (overlap && this._isShown) {
@@ -62,45 +57,41 @@ export class DockVisibility {
     this._signals.connect(global.stage, "motion-event", (_actor: unknown, event: unknown) => {
       try {
         const evt = event as { get_coords?: () => [boolean, number, number] };
-        let x = 0, y = 0;
+        let y = 0;
         if (evt && typeof evt.get_coords === "function") {
-          const [ok, px, py] = evt.get_coords();
-          if (ok) { x = px; y = py; }
+          const [ok, , py] = evt.get_coords();
+          if (ok) {
+            y = py;
+          }
         }
         this._check(y);
       } catch (e) {
-        console.log(`[macos-dock] motion-event ERROR: ${e}`);
+        console.error("[macos-dock] motion-event error:", e);
       }
       return Clutter.EVENT_PROPAGATE;
     });
-
-    // Also poll as fallback — in case motion-event doesn't fire at screen edges.
-    const self = this;
-    const pollId = GLib.timeout_add(150, 100, function() {
+    this._pollId = GLib.timeout_add(150, 100, () => {
       try {
         const pointer = global.get_pointer();
         // get_pointer returns [x, y] in GNOME 50
         const y = pointer[1];
-        self._check(y);
+        this._check(y);
       } catch (e) {
-        console.log(`[macos-dock] poll ERROR: ${e}`);
+        console.error("[macos-dock] poll error:", e);
       }
       return true; // SOURCE_CONTINUE
     });
-    // Store pollId for cleanup (we don't have a field for it, use signals pattern)
-    (this as any)._pollId = pollId;
   }
 
   updateAnimationDuration(duration: number): void {
     this._animationDuration = Math.max(0, Math.min(1000, duration));
-    console.log(`[macos-dock] Animation duration updated to ${this._animationDuration}ms`);
   }
 
   stop(): void {
     this._signals.disconnectAll();
-    if ((this as any)._pollId != null) {
-      GLib.source_remove((this as any)._pollId);
-      (this as any)._pollId = null;
+    if (this._pollId !== null) {
+      GLib.source_remove(this._pollId);
+      this._pollId = null;
     }
     this._intellihide.stop();
     this._container.visible = true;
@@ -133,7 +124,6 @@ export class DockVisibility {
       this._container.visible = true;
       this._container.opacity = 255;
       this._isAnimating = false;
-      console.log(`[macos-dock] SHOW dock (instant)`);
       return;
     }
 
@@ -151,7 +141,6 @@ export class DockVisibility {
       mode: Clutter.AnimationMode.EASE_OUT_QUAD,
       onComplete: () => {
         this._isAnimating = false;
-        console.log(`[macos-dock] SHOW dock (animated)`);
       },
     });
   }
@@ -164,7 +153,6 @@ export class DockVisibility {
     if (this._animationDuration === 0) {
       this._container.visible = false;
       this._isAnimating = false;
-      console.log(`[macos-dock] HIDE dock (instant)`);
       return;
     }
 
@@ -179,7 +167,6 @@ export class DockVisibility {
         this._container.visible = false;
         this._container.y = startY;
         this._isAnimating = false;
-        console.log(`[macos-dock] HIDE dock (animated)`);
       },
     });
   }

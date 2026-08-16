@@ -1,14 +1,21 @@
-import St from "gi://St";
 import Clutter from "gi://Clutter";
-import Shell from "gi://Shell";
 import Gio from "gi://Gio";
 import GLib from "gi://GLib";
+import Shell from "gi://Shell";
+import St from "gi://St";
 import { SignalManager } from "./signalManager.js";
 
 export type DockIconClicked = (app: Shell.App) => void;
 export type IconsChanged = () => void;
 
 type IconActor = InstanceType<typeof St.BoxLayout>;
+
+interface AppData {
+  appId: string;
+  icon: InstanceType<typeof St.Icon>;
+  indicatorBox: InstanceType<typeof St.BoxLayout>;
+  dots: InstanceType<typeof St.Widget>[];
+}
 
 /**
  * Manages app icons inside the dock container.
@@ -22,7 +29,6 @@ export class IconManager {
   private _signals: SignalManager;
   private _container: InstanceType<typeof St.BoxLayout>;
   private _iconSize: number;
-  private _quality: number;
   private _runningIndicatorsEnabled: boolean;
   private _indicatorStyle: number; // 0 = dots per window, 1 = horizontal bar
   private _onClicked: DockIconClicked | null = null;
@@ -36,13 +42,12 @@ export class IconManager {
     container: InstanceType<typeof St.BoxLayout>,
     iconSize: number,
     runningIndicatorsEnabled: boolean,
-    quality: number = 2,
+    _quality: number = 2,
     indicatorStyle: number = 0,
   ) {
     this._signals = new SignalManager();
     this._container = container;
     this._iconSize = iconSize;
-    this._quality = quality;
     this._runningIndicatorsEnabled = runningIndicatorsEnabled;
     this._indicatorStyle = indicatorStyle;
   }
@@ -62,8 +67,7 @@ export class IconManager {
     }
   }
 
-  setQuality(quality: number): void {
-    this._quality = quality;
+  setQuality(_quality: number): void {
     for (const actor of this._icons.values()) {
       this._applyIconSize(actor);
     }
@@ -84,32 +88,16 @@ export class IconManager {
   start(): void {
     const appSystem = Shell.AppSystem.get_default();
 
-    this._signals.connect(appSystem, "installed-changed", () =>
-      this._reload(),
-    );
+    this._signals.connect(appSystem, "installed-changed", () => this._reload());
 
     const tracker = Shell.WindowTracker.get_default();
-    this._signals.connect(tracker, "notify::focus-app", () =>
-      this._refreshAllIndicators(),
-    );
+    this._signals.connect(tracker, "notify::focus-app", () => this._refreshAllIndicators());
 
-    this._signals.connect(
-      global.display,
-      "window-created",
-      () => this._onWindowChange(),
-    );
+    this._signals.connect(global.display, "window-created", () => this._onWindowChange());
 
-    this._signals.connect(
-      global.display,
-      "window-entered-monitor",
-      () => this._onWindowChange(),
-    );
+    this._signals.connect(global.display, "window-entered-monitor", () => this._onWindowChange());
 
-    this._signals.connect(
-      global.display,
-      "window-left-monitor",
-      () => this._onWindowChange(),
-    );
+    this._signals.connect(global.display, "window-left-monitor", () => this._onWindowChange());
 
     this._reload();
   }
@@ -152,30 +140,23 @@ export class IconManager {
     this._apps.clear();
 
     this._favorites = this._readFavorites();
-    console.log(`[macos-dock] Loaded ${this._favorites.length} favorites`);
 
     const appSystem = Shell.AppSystem.get_default();
 
     // Add favorites in their stored order first.
     for (const appId of this._favorites) {
       const app = appSystem.lookup_app(appId);
-      if (!app) {
-        console.log(`[macos-dock] Favorite not found: ${appId}`);
-        continue;
-      }
+      if (!app) continue;
       this._addIcon(app);
     }
 
     // Then any running app that isn't already a favorite.
     const runningApps = this._getRunningApps();
-    console.log(`[macos-dock] Found ${runningApps.length} running apps`);
     for (const app of runningApps) {
       const id = app.get_id();
       if (this._icons.has(id)) continue;
       this._addIcon(app);
     }
-
-    console.log(`[macos-dock] Dock has ${this._icons.size} icons`);
   }
 
   private _onWindowChange(): void {
@@ -256,7 +237,8 @@ export class IconManager {
     actor.add_child(indicatorBox);
 
     // Store references on the actor for retrieval later.
-    (actor as any)._appData = { appId, icon, indicatorBox, dots: [] };
+    const appData: AppData = { appId, icon, indicatorBox, dots: [] };
+    (actor as unknown as Record<string, unknown>)._appData = appData;
 
     this._signals.connect(actor, "button-press-event", () => {
       if (this._onClicked) {
@@ -276,9 +258,9 @@ export class IconManager {
   }
 
   private _applyIconSize(actor: IconActor): void {
-    const icon = this._getStored<InstanceType<typeof St.Icon>>(actor, "icon");
-    if (icon) {
-      icon.set_icon_size(this._iconSize);
+    const data = this._getStored(actor);
+    if (data) {
+      data.icon.set_icon_size(this._iconSize);
     }
     const padded = this._iconSize + 12;
     actor.set_size(padded, padded + 4);
@@ -291,9 +273,9 @@ export class IconManager {
   }
 
   private _refreshRunningIndicator(actor: IconActor, appId: string): void {
-    const data = (actor as any)._appData;
+    const data = this._getStored(actor);
     if (!data) return;
-    const indicatorBox = data.indicatorBox as InstanceType<typeof St.BoxLayout>;
+    const { indicatorBox } = data;
     if (!indicatorBox) return;
 
     if (!this._runningIndicatorsEnabled) {
@@ -333,7 +315,6 @@ export class IconManager {
 
     if (this._indicatorStyle === 0) {
       // Dots per window (macOS style).
-      const currentDots = indicatorBox.get_n_children();
       const needed = focused ? Math.max(windowCount, 1) : windowCount;
 
       // Add or remove dots to match window count.
@@ -379,40 +360,43 @@ export class IconManager {
     try {
       const settings = new Gio.Settings({ schema: "org.gnome.shell" });
       return settings.get_strv("favorite-apps");
-    } catch (_e) {
-      console.log("[macos-dock] Could not read favorites:", _e);
+    } catch {
       return [];
     }
   }
 
-  private _getStored<T>(actor: IconActor, key: string): T | null {
-    const data = (actor as any)._appData;
+  private _getStored(actor: IconActor): AppData | null {
+    const data = (actor as unknown as Record<string, unknown>)._appData;
     if (!data) return null;
-    return data[key] ?? null;
+    return data as AppData;
   }
 
   private _bounce(actor: IconActor): void {
-    const a = actor as any;
     const baseY = 0;
     const up = -28;
     const small = -10;
 
-    a.ease({
+    // Note: translation_y is the correct GJS property name (snake_case), even though
+    // the TypeScript types expect camelCase (translationY). This is a type definition mismatch.
+    const ease = (params: Record<string, unknown>) =>
+      actor.ease(params as Parameters<typeof actor.ease>[0]);
+
+    ease({
       translation_y: up,
       duration: 180,
       mode: Clutter.AnimationMode.EASE_OUT_QUAD,
       onComplete: () => {
-        a.ease({
+        ease({
           translation_y: baseY,
           duration: 120,
           mode: Clutter.AnimationMode.EASE_IN_QUAD,
           onComplete: () => {
-            a.ease({
+            ease({
               translation_y: small,
               duration: 100,
               mode: Clutter.AnimationMode.EASE_OUT_QUAD,
               onComplete: () => {
-                a.ease({
+                ease({
                   translation_y: baseY,
                   duration: 80,
                   mode: Clutter.AnimationMode.EASE_IN_QUAD,

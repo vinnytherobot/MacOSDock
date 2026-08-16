@@ -1,14 +1,14 @@
-import St from "gi://St";
 import Clutter from "gi://Clutter";
-import Shell from "gi://Shell";
-import Gio from "gi://Gio";
+import type Gio from "gi://Gio";
 import GLib from "gi://GLib";
+import Shell from "gi://Shell";
+import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
-import { SignalManager } from "./signalManager.js";
-import { Intellihide } from "./intellihide.js";
 import { DockVisibility } from "./dockVisibility.js";
 import { IconManager } from "./iconManager.js";
+import { Intellihide } from "./intellihide.js";
 import { Magnification } from "./magnification.js";
+import { SignalManager } from "./signalManager.js";
 
 export class DockManager {
   private _signals: SignalManager;
@@ -20,6 +20,7 @@ export class DockManager {
   private _settings: Gio.Settings | null = null;
   private _lastFocusedApp: Shell.App | null = null;
   private _recentlyLaunched: Set<string> = new Set();
+  private _debounceSourceId: number | null = null;
   private _originalDashVisible?: boolean;
 
   private static readonly MARGIN_BOTTOM = 12;
@@ -70,29 +71,19 @@ export class DockManager {
     this._magnification.start();
 
     this._updatePosition();
-    this._signals.connect(
-      global.display,
-      "workareas-changed",
-      () => this._updatePosition(),
-    );
+    this._signals.connect(global.display, "workareas-changed", () => this._updatePosition());
 
     // Watch for newly launched apps so we can bounce their dock icon.
     const tracker = Shell.WindowTracker.get_default();
-    this._signals.connect(tracker, "notify::focus-app", () =>
-      this._onFocusAppChanged(),
-    );
+    this._signals.connect(tracker, "notify::focus-app", () => this._onFocusAppChanged());
 
     // Live settings.
-    this._signals.connect(
-      settings,
-      "changed::icon-size",
-      () => {
-        if (this._iconManager) {
-          this._iconManager.setIconSize(settings.get_int("icon-size"));
-        }
-        this._updatePosition();
-      },
-    );
+    this._signals.connect(settings, "changed::icon-size", () => {
+      if (this._iconManager) {
+        this._iconManager.setIconSize(settings.get_int("icon-size"));
+      }
+      this._updatePosition();
+    });
     this._signals.connect(settings, "changed::auto-hide", () => {
       if (settings.get_boolean("auto-hide")) {
         this._startAutoHide();
@@ -102,44 +93,32 @@ export class DockManager {
     });
     this._signals.connect(settings, "changed::magnification-enabled", () => {
       if (this._magnification) {
-        this._magnification.setEnabled(
-          settings.get_boolean("magnification-enabled"),
-        );
+        this._magnification.setEnabled(settings.get_boolean("magnification-enabled"));
       }
     });
     this._signals.connect(settings, "changed::magnification-scale", () => {
       if (this._magnification) {
-        this._magnification.setMaxScale(
-          settings.get_double("magnification-scale"),
-        );
+        this._magnification.setMaxScale(settings.get_double("magnification-scale"));
       }
     });
     this._signals.connect(settings, "changed::magnification-falloff", () => {
       if (this._magnification) {
-        this._magnification.setFalloffDistance(
-          settings.get_int("magnification-falloff"),
-        );
+        this._magnification.setFalloffDistance(settings.get_int("magnification-falloff"));
       }
     });
     this._signals.connect(settings, "changed::running-indicators", () => {
       if (this._iconManager) {
-        this._iconManager.setRunningIndicatorsEnabled(
-          settings.get_boolean("running-indicators"),
-        );
+        this._iconManager.setRunningIndicatorsEnabled(settings.get_boolean("running-indicators"));
       }
     });
     this._signals.connect(settings, "changed::animation-duration", () => {
       if (this._visibility) {
-        this._visibility.updateAnimationDuration(
-          settings.get_int("animation-duration"),
-        );
+        this._visibility.updateAnimationDuration(settings.get_int("animation-duration"));
       }
     });
     this._signals.connect(settings, "changed::magnification-framerate", () => {
       if (this._magnification) {
-        this._magnification.setFramerate(
-          settings.get_int("magnification-framerate"),
-        );
+        this._magnification.setFramerate(settings.get_int("magnification-framerate"));
       }
     });
     this._signals.connect(settings, "changed::icon-quality", () => {
@@ -161,8 +140,6 @@ export class DockManager {
     if (settings.get_boolean("auto-hide")) {
       this._startAutoHide();
     }
-
-    console.log("[macos-dock] DockManager enabled");
   }
 
   disable(): void {
@@ -188,6 +165,11 @@ export class DockManager {
 
     this._signals.disconnectAll();
 
+    if (this._debounceSourceId !== null) {
+      GLib.source_remove(this._debounceSourceId);
+      this._debounceSourceId = null;
+    }
+
     if (this._container) {
       Main.layoutManager.removeChrome(this._container);
       this._container.destroy();
@@ -198,7 +180,6 @@ export class DockManager {
     this._showDefaultDash();
 
     this._settings = null;
-    console.log("[macos-dock] DockManager disabled");
   }
 
   private _startAutoHide(): void {
@@ -286,11 +267,12 @@ export class DockManager {
 
     if (this._recentlyLaunched.has(appId)) return;
     this._recentlyLaunched.add(appId);
-    GLib.timeout_add(
+    this._debounceSourceId = GLib.timeout_add(
       GLib.PRIORITY_DEFAULT,
       DockManager.LAUNCH_DEBOUNCE_MS,
       () => {
         this._recentlyLaunched.delete(appId);
+        this._debounceSourceId = null;
         return GLib.SOURCE_REMOVE;
       },
     );
@@ -309,13 +291,10 @@ export class DockManager {
     const iconPadded = (this._settings?.get_int("icon-size") ?? 48) + 12;
     const spacing = 6; // matches CSS spacing
     const padding = 20; // matches CSS padding (10px each side)
-    const contentWidth = children > 0
-      ? children * iconPadded + (children - 1) * spacing
-      : 0;
+    const contentWidth = children > 0 ? children * iconPadded + (children - 1) * spacing : 0;
     const dockWidth = Math.max(contentWidth + padding, DockManager.MIN_DOCK_WIDTH);
     const x = monitor.x + Math.floor((monitor.width - dockWidth) / 2);
-    const y =
-      monitor.y + monitor.height - DockManager.DOCK_HEIGHT - DockManager.MARGIN_BOTTOM;
+    const y = monitor.y + monitor.height - DockManager.DOCK_HEIGHT - DockManager.MARGIN_BOTTOM;
 
     this._container.set_size(dockWidth, DockManager.DOCK_HEIGHT);
     this._container.set_position(x, y);
@@ -325,12 +304,7 @@ export class DockManager {
     }
 
     if (this._intellihide) {
-      this._intellihide.setDockRect(
-        x,
-        y,
-        dockWidth,
-        DockManager.DOCK_HEIGHT,
-      );
+      this._intellihide.setDockRect(x, y, dockWidth, DockManager.DOCK_HEIGHT);
     }
   }
 
@@ -338,7 +312,7 @@ export class DockManager {
     const dash = Main.overview.dash;
     this._originalDashVisible = dash.visible;
     dash.hide();
-    const dashSpacer = (dash as any)._dashSpacer;
+    const dashSpacer = (dash as unknown as { _dashSpacer?: St.Widget })._dashSpacer;
     if (dashSpacer) {
       dashSpacer.visible = false;
     }
@@ -347,7 +321,7 @@ export class DockManager {
   private _showDefaultDash(): void {
     const dash = Main.overview.dash;
     dash.visible = this._originalDashVisible ?? true;
-    const dashSpacer = (dash as any)._dashSpacer;
+    const dashSpacer = (dash as unknown as { _dashSpacer?: St.Widget })._dashSpacer;
     if (dashSpacer) {
       dashSpacer.visible = true;
     }
