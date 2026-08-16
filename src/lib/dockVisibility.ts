@@ -5,7 +5,6 @@ import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { Intellihide, OverlapStatus } from "./intellihide.js";
 import { SignalManager } from "./signalManager.js";
 
-const SHOW_THRESHOLD = 50;   // show when pointer within 50px of bottom
 const HIDE_THRESHOLD = 100;  // hide only when pointer is 100px+ above bottom
 
 type Container = InstanceType<typeof St.BoxLayout>;
@@ -20,6 +19,7 @@ export class DockVisibility {
   private _dockHeight: number;
   private _marginBottom: number;
   private _animationDuration: number;
+  private _showThreshold: number;
 
   constructor(
     container: Container,
@@ -27,6 +27,7 @@ export class DockVisibility {
     dockHeight: number,
     marginBottom: number,
     animationDuration: number = 200,
+    showThreshold: number = 25,
   ) {
     this._signals = new SignalManager();
     this._container = container;
@@ -34,6 +35,7 @@ export class DockVisibility {
     this._dockHeight = dockHeight;
     this._marginBottom = marginBottom;
     this._animationDuration = animationDuration;
+    this._showThreshold = showThreshold;
   }
 
   start(): void {
@@ -47,7 +49,7 @@ export class DockVisibility {
     this._container.visible = false;
     this._isShown = false;
 
-    console.log(`[macos-dock] DockVisibility started, show<${SHOW_THRESHOLD}px, hide>${HIDE_THRESHOLD}px, animation=${this._animationDuration}ms`);
+    console.log(`[macos-dock] DockVisibility started, show<${this._showThreshold}px, hide>${HIDE_THRESHOLD}px, animation=${this._animationDuration}ms`);
 
     this._intellihide.start((overlap: OverlapStatus) => {
       if (overlap && this._isShown) {
@@ -115,9 +117,7 @@ export class DockVisibility {
     const bottom = this._monitor.y + this._monitor.height;
 
     // Hysteresis: different thresholds for show vs hide to prevent flickering.
-    // When hidden, show when pointer is close to bottom (50px).
-    // When shown, only hide when pointer is far from bottom (100px+).
-    if (!this._isShown && pointerY >= bottom - SHOW_THRESHOLD) {
+    if (!this._isShown && pointerY >= bottom - this._showThreshold) {
       this._show();
     } else if (this._isShown && pointerY < bottom - HIDE_THRESHOLD) {
       this._hide();

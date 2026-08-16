@@ -67,6 +67,20 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     settings.bind("animation-duration", animDurationRow, "value", BIND_FLAGS);
     behaviorGroup.add(animDurationRow);
 
+    const showThresholdRow = new Adw.SpinRow({
+      title: "Show threshold",
+      subtitle: "Distance in pixels from screen edge to trigger dock show",
+      adjustment: new Gtk.Adjustment({
+        lower: 5,
+        upper: 100,
+        step_increment: 5,
+        page_increment: 10,
+        value: settings.get_int("show-threshold"),
+      }),
+    });
+    settings.bind("show-threshold", showThresholdRow, "value", BIND_FLAGS);
+    behaviorGroup.add(showThresholdRow);
+
     // Magnification group
     const magGroup = new Adw.PreferencesGroup({
       title: "Magnification",

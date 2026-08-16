@@ -57,5 +57,10 @@
       <summary>Icon quality multiplier</summary>
       <description>Render icons at N times native resolution to prevent blur when magnified (1, 2, or 4)</description>
     </key>
+    <key name="show-threshold" type="i">
+      <default>25</default>
+      <summary>Show threshold</summary>
+      <description>Distance in pixels from screen edge to trigger dock show</description>
+    </key>
   </schema>
 </schemalist>

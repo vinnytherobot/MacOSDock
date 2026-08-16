@@ -202,6 +202,7 @@ export class DockManager {
       DockManager.DOCK_HEIGHT,
       DockManager.MARGIN_BOTTOM,
       this._settings.get_int("animation-duration"),
+      this._settings.get_int("show-threshold"),
     );
     // Must set dock rect AFTER creating intellihide so it can detect overlap.
     this._updatePosition();
