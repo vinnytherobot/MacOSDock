@@ -267,6 +267,11 @@ export class DockManager {
 
     if (this._recentlyLaunched.has(appId)) return;
     this._recentlyLaunched.add(appId);
+
+    if (this._debounceSourceId !== null) {
+      GLib.source_remove(this._debounceSourceId);
+    }
+
     this._debounceSourceId = GLib.timeout_add(
       GLib.PRIORITY_DEFAULT,
       DockManager.LAUNCH_DEBOUNCE_MS,

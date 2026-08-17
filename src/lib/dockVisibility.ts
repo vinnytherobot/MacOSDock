@@ -52,6 +52,12 @@ export class DockVisibility {
       }
     });
 
+    // Remove any existing poll before creating a new one.
+    if (this._pollId !== null) {
+      GLib.source_remove(this._pollId);
+      this._pollId = null;
+    }
+
     // Use the global stage motion-event to detect pointer near bottom.
     // This is more reliable than GLib.timeout_add in some GJS versions.
     this._signals.connect(global.stage, "motion-event", (_actor: unknown, event: unknown) => {

@@ -37,6 +37,7 @@ export class IconManager {
   private _icons: Map<string, IconActor> = new Map();
   private _apps: Map<string, Shell.App> = new Map();
   private _favorites: string[] = [];
+  private _windowChangeSourceId: number | null = null;
 
   constructor(
     container: InstanceType<typeof St.BoxLayout>,
@@ -104,6 +105,12 @@ export class IconManager {
 
   stop(): void {
     this._signals.disconnectAll();
+
+    if (this._windowChangeSourceId !== null) {
+      GLib.source_remove(this._windowChangeSourceId);
+      this._windowChangeSourceId = null;
+    }
+
     this._container.remove_all_children();
     this._icons.clear();
     this._apps.clear();
@@ -160,9 +167,15 @@ export class IconManager {
   }
 
   private _onWindowChange(): void {
+    // Remove any existing timeout before creating a new one.
+    if (this._windowChangeSourceId !== null) {
+      GLib.source_remove(this._windowChangeSourceId);
+    }
+
     // Delay to ensure window is fully initialized before checking.
-    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+    this._windowChangeSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
       this._doWindowChange();
+      this._windowChangeSourceId = null;
       return GLib.SOURCE_REMOVE;
     });
   }
