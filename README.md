@@ -1,6 +1,16 @@
-# MacOS Dock for GNOME Shell
+<p align="center">
+  <img src="assets/MacOSDock-logo.png" alt="MacOS Dock Logo" width="128">
+</p>
 
-A macOS-style dock extension for GNOME Shell featuring smooth magnification, configurable animations, and native-like behavior.
+<h1 align="center">MacOS Dock for GNOME Shell</h1>
+
+<p align="center">
+  A macOS-style dock extension for GNOME Shell featuring smooth magnification, configurable animations, and native-like behavior.
+</p>
+
+<p align="center">
+  <img src="assets/MacOSDock-demo.gif" alt="MacOS Dock Demo" width="600">
+</p>
 
 ## Features
 
@@ -49,18 +59,18 @@ gnome-extensions prefs macos-dock@vinnytherobot.github.io
 
 ### Settings
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Auto-hide | Hide dock when pointer moves away | Enabled |
-| Bounce on launch | Animate icon when app starts | Enabled |
-| Animation duration | Show/hide animation time (ms) | 200 |
-| Show threshold | Distance from edge to trigger show (px) | 25 |
-| Enable magnification | Scale icons on hover | Enabled |
-| Max scale | Maximum magnification factor | 1.4 |
-| Falloff distance | Magnification wave reach (px) | 100 |
-| Running indicators | Show running app indicators | Enabled |
-| Indicator style | Dots per window or horizontal bar | Dots |
-| Framerate | Animation framerate (Hz) | 60 |
+| Setting              | Description                             | Default |
+| -------------------- | --------------------------------------- | ------- |
+| Auto-hide            | Hide dock when pointer moves away       | Enabled |
+| Bounce on launch     | Animate icon when app starts            | Enabled |
+| Animation duration   | Show/hide animation time (ms)           | 200     |
+| Show threshold       | Distance from edge to trigger show (px) | 25      |
+| Enable magnification | Scale icons on hover                    | Enabled |
+| Max scale            | Maximum magnification factor            | 1.4     |
+| Falloff distance     | Magnification wave reach (px)           | 100     |
+| Running indicators   | Show running app indicators             | Enabled |
+| Indicator style      | Dots per window or horizontal bar       | Dots    |
+| Framerate            | Animation framerate (Hz)                | 60      |
 
 ## Development
 
