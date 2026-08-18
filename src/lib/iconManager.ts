@@ -3,6 +3,7 @@ import Gio from "gi://Gio";
 import GLib from "gi://GLib";
 import Shell from "gi://Shell";
 import St from "gi://St";
+import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { SignalManager } from "./signalManager.js";
 
 export type DockIconClicked = (app: Shell.App) => void;
@@ -103,13 +104,13 @@ export class IconManager {
 
     this._signals.connect(global.display, "window-left-monitor", () => this._onWindowChange());
 
-    // Initialize tooltip
+    // Initialize tooltip - add to top chrome layer like the dock
     this._tooltipText = new St.Label({
       style_class: "macos-dock-tooltip",
       text: "",
       visible: false,
     });
-    global.stage.add_child(this._tooltipText);
+    Main.layoutManager.addTopChrome(this._tooltipText);
 
     this._reload();
   }
@@ -124,6 +125,7 @@ export class IconManager {
 
     this._hideTooltip();
     if (this._tooltipText) {
+      Main.layoutManager.removeChrome(this._tooltipText);
       this._tooltipText.destroy();
       this._tooltipText = null;
     }
@@ -225,10 +227,14 @@ export class IconManager {
       if (!isFavorite && !runningIds.has(id)) {
         toRemove.push(id);
         // Animate icon disappearing (fade out + scale)
-        actor.ease({
+        // Note: scale_x/scale_y are the correct GJS property names (snake_case),
+        // even though TypeScript types expect camelCase (scaleX/scaleY).
+        const easeOut = (params: Record<string, unknown>) =>
+          actor.ease(params as Parameters<typeof actor.ease>[0]);
+        easeOut({
           opacity: 0,
-          scaleX: 0.8,
-          scaleY: 0.8,
+          scale_x: 0.8,
+          scale_y: 0.8,
           duration: 200,
           mode: Clutter.AnimationMode.EASE_IN_QUAD,
           onComplete: () => {
@@ -333,14 +339,13 @@ export class IconManager {
       return Clutter.EVENT_PROPAGATE;
     });
 
-    // Tooltip events
-    this._signals.connect(actor, "hover-enter", () => {
-      this._showTooltip(actor, app.get_name());
-      return Clutter.EVENT_PROPAGATE;
-    });
-
-    this._signals.connect(actor, "hover-leave", () => {
-      this._hideTooltip();
+    // Tooltip events - use notify::hover since track_hover is enabled
+    this._signals.connect(actor, "notify::hover", () => {
+      if (actor.hover) {
+        this._showTooltip(actor, app.get_name());
+      } else {
+        this._hideTooltip();
+      }
       return Clutter.EVENT_PROPAGATE;
     });
 
@@ -349,13 +354,17 @@ export class IconManager {
     this._apps.set(appId, app);
 
     // Animate icon appearing (fade in + scale)
+    // Note: scale_x/scale_y are the correct GJS property names (snake_case),
+    // even though TypeScript types expect camelCase (scaleX/scaleY).
     actor.opacity = 0;
     actor.scale_x = 0.8;
     actor.scale_y = 0.8;
-    actor.ease({
+    const easeIn = (params: Record<string, unknown>) =>
+      actor.ease(params as Parameters<typeof actor.ease>[0]);
+    easeIn({
       opacity: 255,
-      scaleX: 1.0,
-      scaleY: 1.0,
+      scale_x: 1.0,
+      scale_y: 1.0,
       duration: 200,
       mode: Clutter.AnimationMode.EASE_OUT_QUAD,
     });
@@ -563,13 +572,15 @@ export class IconManager {
       const menuItem = new St.Button({
         style_class: "macos-dock-context-menu-item",
         reactive: true,
+        track_hover: true,
         x_align: Clutter.ActorAlign.START,
         y_align: Clutter.ActorAlign.CENTER,
         label: item.label,
       });
-      menuItem.connect("clicked", () => {
+      menuItem.connect("button-press-event", () => {
         item.action();
         this._closeContextMenu();
+        return Clutter.EVENT_STOP;
       });
       this._contextMenu.add_child(menuItem);
     }
@@ -584,7 +595,7 @@ export class IconManager {
     const menuY = y - menuHeight - 10;
 
     this._contextMenu.set_position(menuX, menuY);
-    global.stage.add_child(this._contextMenu);
+    Main.layoutManager.addTopChrome(this._contextMenu);
 
     // Close menu when clicking outside
     const clickOutsideId = global.stage.connect("button-press-event", () => {
@@ -596,6 +607,7 @@ export class IconManager {
 
   private _closeContextMenu(): void {
     if (this._contextMenu) {
+      Main.layoutManager.removeChrome(this._contextMenu);
       this._contextMenu.destroy();
       this._contextMenu = null;
     }
