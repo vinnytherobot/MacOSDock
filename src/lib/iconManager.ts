@@ -333,14 +333,13 @@ export class IconManager {
       return Clutter.EVENT_PROPAGATE;
     });
 
-    // Tooltip events
-    this._signals.connect(actor, "hover-enter", () => {
-      this._showTooltip(actor, app.get_name());
-      return Clutter.EVENT_PROPAGATE;
-    });
-
-    this._signals.connect(actor, "hover-leave", () => {
-      this._hideTooltip();
+    // Tooltip events - use notify::hover since track_hover is enabled
+    this._signals.connect(actor, "notify::hover", () => {
+      if (actor.hover) {
+        this._showTooltip(actor, app.get_name());
+      } else {
+        this._hideTooltip();
+      }
       return Clutter.EVENT_PROPAGATE;
     });
 
