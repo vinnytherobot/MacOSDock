@@ -221,7 +221,7 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     perfGroup.add(fpsRow);
 
     // Disconnect all tracked signals when the window is closed.
-    window.connect("closed", () => this._disconnectAll());
+    window.connect("close-request", () => this._disconnectAll());
   }
 
   private _trackSignal(
