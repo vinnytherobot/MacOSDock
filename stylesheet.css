@@ -47,9 +47,6 @@
   color: white;
   border-radius: 6px;
   padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 /* Context Menu */
@@ -57,14 +54,12 @@
   background-color: rgba(40, 40, 40, 0.95);
   border-radius: 8px;
   padding: 4px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   min-width: 120px;
 }
 
 .macos-dock-context-menu-item {
   padding: 8px 16px;
   color: white;
-  font-size: 13px;
   background: transparent;
   border: none;
   border-radius: 4px;
