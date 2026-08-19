@@ -19,6 +19,7 @@ export class DockVisibility {
   private _animationDuration: number;
   private _showThreshold: number;
   private _pollId: number | null = null;
+  private _edge: number; // 0=bottom, 1=left, 2=right, 3=top
 
   constructor(
     container: Container,
@@ -27,12 +28,18 @@ export class DockVisibility {
     _marginBottom: number,
     animationDuration: number = 200,
     showThreshold: number = 25,
+    edge: number = 0,
   ) {
     this._signals = new SignalManager();
     this._container = container;
     this._intellihide = intellihide;
     this._animationDuration = animationDuration;
     this._showThreshold = showThreshold;
+    this._edge = edge;
+  }
+
+  setEdge(edge: number): void {
+    this._edge = edge;
   }
 
   start(): void {
@@ -63,14 +70,16 @@ export class DockVisibility {
     this._signals.connect(global.stage, "motion-event", (_actor: unknown, event: unknown) => {
       try {
         const evt = event as { get_coords?: () => [boolean, number, number] };
+        let x = 0;
         let y = 0;
         if (evt && typeof evt.get_coords === "function") {
-          const [ok, , py] = evt.get_coords();
+          const [ok, px, py] = evt.get_coords();
           if (ok) {
+            x = px;
             y = py;
           }
         }
-        this._check(y);
+        this._check(x, y);
       } catch (e) {
         console.error("[macos-dock] motion-event error:", e);
       }
@@ -79,9 +88,9 @@ export class DockVisibility {
     this._pollId = GLib.timeout_add(150, 100, () => {
       try {
         const pointer = global.get_pointer();
-        // get_pointer returns [x, y] in GNOME 50
+        const x = pointer[0];
         const y = pointer[1];
-        this._check(y);
+        this._check(x, y);
       } catch (e) {
         console.error("[macos-dock] poll error:", e);
       }
@@ -101,6 +110,7 @@ export class DockVisibility {
     }
     this._intellihide.stop();
     this._container.visible = true;
+    this._container.opacity = 255;
   }
 
   isHidden(): boolean {
@@ -109,14 +119,34 @@ export class DockVisibility {
 
   updateShownY(_y: number): void {}
 
-  private _check(pointerY: number): void {
+  private _check(pointerX: number, pointerY: number): void {
     if (!this._monitor) return;
-    const bottom = this._monitor.y + this._monitor.height;
 
-    // Hysteresis: different thresholds for show vs hide to prevent flickering.
-    if (!this._isShown && pointerY >= bottom - this._showThreshold) {
+    let shouldShow = false;
+    let shouldHide = false;
+
+    switch (this._edge) {
+      case 0: // Bottom
+        shouldShow = pointerY >= this._monitor.y + this._monitor.height - this._showThreshold;
+        shouldHide = pointerY < this._monitor.y + this._monitor.height - HIDE_THRESHOLD;
+        break;
+      case 1: // Left
+        shouldShow = pointerX <= this._monitor.x + this._showThreshold;
+        shouldHide = pointerX > this._monitor.x + HIDE_THRESHOLD;
+        break;
+      case 2: // Right
+        shouldShow = pointerX >= this._monitor.x + this._monitor.width - this._showThreshold;
+        shouldHide = pointerX < this._monitor.x + this._monitor.width - HIDE_THRESHOLD;
+        break;
+      case 3: // Top
+        shouldShow = pointerY <= this._monitor.y + this._showThreshold;
+        shouldHide = pointerY > this._monitor.y + HIDE_THRESHOLD;
+        break;
+    }
+
+    if (!this._isShown && shouldShow) {
       this._show();
-    } else if (this._isShown && pointerY < bottom - HIDE_THRESHOLD) {
+    } else if (this._isShown && shouldHide) {
       this._hide();
     }
   }

@@ -42,6 +42,8 @@ export class IconManager {
   private _tooltipText: InstanceType<typeof St.Label> | null = null;
   private _contextMenu: InstanceType<typeof St.BoxLayout> | null = null;
   private _separator: InstanceType<typeof St.Widget> | null = null;
+  private _appButton: InstanceType<typeof St.BoxLayout> | null = null;
+  private _showAppButton: boolean = true;
 
   constructor(
     container: InstanceType<typeof St.BoxLayout>,
@@ -88,6 +90,11 @@ export class IconManager {
     for (const [appId, actor] of this._icons.entries()) {
       this._refreshRunningIndicator(actor, appId);
     }
+  }
+
+  setShowAppButton(show: boolean): void {
+    this._showAppButton = show;
+    this._updateAppButton();
   }
 
   start(): void {
@@ -151,6 +158,18 @@ export class IconManager {
     return result;
   }
 
+  getIconCount(): number {
+    return this._icons.size;
+  }
+
+  hasSeparator(): boolean {
+    return this._separator !== null;
+  }
+
+  hasAppButton(): boolean {
+    return this._appButton !== null;
+  }
+
   /**
    * Trigger a macOS-style "bounce" animation on the icon for a given app,
    * used to draw the user's attention when an app is launched.
@@ -167,6 +186,7 @@ export class IconManager {
     this._icons.clear();
     this._apps.clear();
     this._separator = null;
+    this._appButton = null;
 
     this._favorites = this._readFavorites();
 
@@ -193,6 +213,9 @@ export class IconManager {
     for (const app of runningApps) {
       this._addIcon(app);
     }
+
+    // Add applications button at the end
+    this._updateAppButton();
   }
 
   private _onWindowChange(): void {
@@ -301,7 +324,7 @@ export class IconManager {
       track_hover: true,
       vertical: true,
       x_align: Clutter.ActorAlign.CENTER,
-      y_align: Clutter.ActorAlign.END,
+      y_align: Clutter.ActorAlign.FILL,
     }) as IconActor;
 
     this._applyIconSize(actor);
@@ -317,7 +340,7 @@ export class IconManager {
     const indicatorBox = new St.BoxLayout({
       style_class: "macos-dock-indicator-box",
       x_align: Clutter.ActorAlign.CENTER,
-      y_align: Clutter.ActorAlign.END,
+      y_align: Clutter.ActorAlign.CENTER,
     });
     actor.add_child(indicatorBox);
 
@@ -621,7 +644,7 @@ export class IconManager {
   }
 
   private _addSeparator(): void {
-    if (this._separator) return; // Already exists
+    if (this._separator) return;
 
     this._separator = new St.Widget({
       style_class: "macos-dock-separator",
@@ -630,6 +653,77 @@ export class IconManager {
       x_align: Clutter.ActorAlign.CENTER,
       y_align: Clutter.ActorAlign.CENTER,
     });
-    this._container.add_child(this._separator);
+
+    // Insert after the last favorite icon, before non-favorite running apps
+    let insertIndex = 0;
+    for (const [id] of this._icons) {
+      if (this._favorites.includes(id)) {
+        insertIndex++;
+      } else {
+        break;
+      }
+    }
+    this._container.insert_child_at_index(this._separator, insertIndex);
+  }
+
+  private _updateAppButton(): void {
+    if (this._showAppButton && !this._appButton) {
+      this._addAppButton();
+    } else if (!this._showAppButton && this._appButton) {
+      this._removeAppButton();
+    }
+  }
+
+  private _addAppButton(): void {
+    if (this._appButton) return;
+
+    const padded = this._iconSize + 12;
+
+    this._appButton = new St.BoxLayout({
+      style_class: "macos-dock-app-button",
+      reactive: true,
+      track_hover: true,
+      vertical: true,
+      x_align: Clutter.ActorAlign.CENTER,
+      y_align: Clutter.ActorAlign.FILL,
+      width: padded,
+      height: padded + 4,
+    });
+
+    const icon = new St.Icon({
+      icon_name: "view-app-grid-symbolic",
+      icon_size: this._iconSize,
+      style_class: "macos-dock-app-button-icon",
+    });
+    this._appButton.add_child(icon);
+
+    this._appButton.connect("button-press-event", () => {
+      Main.overview.toggle();
+      return Clutter.EVENT_STOP;
+    });
+
+    // Tooltip on hover
+    this._signals.connect(this._appButton, "notify::hover", () => {
+      if (this._appButton?.hover) {
+        this._showTooltip(this._appButton, "Applications");
+      } else {
+        this._hideTooltip();
+      }
+    });
+
+    this._container.add_child(this._appButton);
+
+    // Notify dock to resize
+    if (this._onIconsChanged) this._onIconsChanged();
+  }
+
+  private _removeAppButton(): void {
+    if (!this._appButton) return;
+    this._container.remove_child(this._appButton);
+    this._appButton.destroy();
+    this._appButton = null;
+
+    // Notify dock to resize
+    if (this._onIconsChanged) this._onIconsChanged();
   }
 }

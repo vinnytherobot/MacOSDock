@@ -62,5 +62,95 @@
       <summary>Show threshold</summary>
       <description>Distance in pixels from screen edge to trigger dock show</description>
     </key>
+    <key name="dock-opacity" type="i">
+      <default>60</default>
+      <summary>Dock opacity</summary>
+      <description>Dock background opacity percentage (0-100)</description>
+    </key>
+    <key name="dock-background-color" type="s">
+      <default>'#1e1e1e'</default>
+      <summary>Dock background color</summary>
+      <description>Hex color for dock background (e.g. #1e1e1e)</description>
+    </key>
+    <key name="dock-border-radius" type="i">
+      <default>16</default>
+      <summary>Dock border radius</summary>
+      <description>Corner radius of the dock in pixels</description>
+    </key>
+    <key name="dock-blur-enabled" type="b">
+      <default>false</default>
+      <summary>Enable dock blur</summary>
+      <description>Apply blur effect behind the dock for a frosted glass look</description>
+    </key>
+    <key name="dock-position" type="i">
+      <default>0</default>
+      <summary>Dock position</summary>
+      <description>Position of the dock on screen (0=bottom, 1=left, 2=right, 3=top)</description>
+    </key>
+    <key name="enable-keyboard-nav" type="b">
+      <default>true</default>
+      <summary>Enable keyboard navigation</summary>
+      <description>Allow keyboard shortcuts to control the dock</description>
+    </key>
+    <key name="toggle-dock" type="as">
+      <default>['&lt;Super&gt;d']</default>
+      <summary>Toggle dock visibility</summary>
+      <description>Keyboard shortcut to toggle dock visibility</description>
+    </key>
+    <key name="focus-app-1" type="as">
+      <default>['&lt;Super&gt;1']</default>
+      <summary>Focus app 1</summary>
+      <description>Keyboard shortcut to focus the first app in the dock</description>
+    </key>
+    <key name="focus-app-2" type="as">
+      <default>['&lt;Super&gt;2']</default>
+      <summary>Focus app 2</summary>
+      <description>Keyboard shortcut to focus the second app in the dock</description>
+    </key>
+    <key name="focus-app-3" type="as">
+      <default>['&lt;Super&gt;3']</default>
+      <summary>Focus app 3</summary>
+      <description>Keyboard shortcut to focus the third app in the dock</description>
+    </key>
+    <key name="focus-app-4" type="as">
+      <default>['&lt;Super&gt;4']</default>
+      <summary>Focus app 4</summary>
+      <description>Keyboard shortcut to focus the fourth app in the dock</description>
+    </key>
+    <key name="focus-app-5" type="as">
+      <default>['&lt;Super&gt;5']</default>
+      <summary>Focus app 5</summary>
+      <description>Keyboard shortcut to focus the fifth app in the dock</description>
+    </key>
+    <key name="focus-app-6" type="as">
+      <default>['&lt;Super&gt;6']</default>
+      <summary>Focus app 6</summary>
+      <description>Keyboard shortcut to focus the sixth app in the dock</description>
+    </key>
+    <key name="focus-app-7" type="as">
+      <default>['&lt;Super&gt;7']</default>
+      <summary>Focus app 7</summary>
+      <description>Keyboard shortcut to focus the seventh app in the dock</description>
+    </key>
+    <key name="focus-app-8" type="as">
+      <default>['&lt;Super&gt;8']</default>
+      <summary>Focus app 8</summary>
+      <description>Keyboard shortcut to focus the eighth app in the dock</description>
+    </key>
+    <key name="focus-app-9" type="as">
+      <default>['&lt;Super&gt;9']</default>
+      <summary>Focus app 9</summary>
+      <description>Keyboard shortcut to focus the ninth app in the dock</description>
+    </key>
+    <key name="focus-app-10" type="as">
+      <default>['&lt;Super&gt;0']</default>
+      <summary>Focus app 10</summary>
+      <description>Keyboard shortcut to focus the tenth app in the dock</description>
+    </key>
+    <key name="show-applications-button" type="b">
+      <default>true</default>
+      <summary>Show applications button</summary>
+      <description>Show a button to access all installed applications</description>
+    </key>
   </schema>
 </schemalist>
