@@ -16,6 +16,8 @@ export class Magnification {
   private _framerate: number;
   private _pollId: number | null = null;
   private _currentScales: number[] = [];
+  private _pivotX = 0.5;
+  private _pivotY = 1.0;
 
   constructor(
     container: InstanceType<typeof St.BoxLayout>,
@@ -48,6 +50,11 @@ export class Magnification {
   setFramerate(fps: number): void {
     this._framerate = fps;
     this._restartPoll();
+  }
+
+  setPivotPoint(x: number, y: number): void {
+    this._pivotX = x;
+    this._pivotY = y;
   }
 
   start(): void {
@@ -106,8 +113,11 @@ export class Magnification {
 
     // Ensure pivot-point and currentScales array are sized.
     for (const child of children) {
-      if (child.get_pivot_point()[0] !== 0.5) {
-        child.set_pivot_point(0.5, 1.0);
+      if (
+        child.get_pivot_point()[0] !== this._pivotX ||
+        child.get_pivot_point()[1] !== this._pivotY
+      ) {
+        child.set_pivot_point(this._pivotX, this._pivotY);
       }
     }
     while (this._currentScales.length < children.length) {

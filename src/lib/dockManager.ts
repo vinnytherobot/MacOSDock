@@ -1,6 +1,7 @@
 import Clutter from "gi://Clutter";
 import type Gio from "gi://Gio";
 import GLib from "gi://GLib";
+import Meta from "gi://Meta";
 import Shell from "gi://Shell";
 import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
@@ -9,6 +10,8 @@ import { IconManager } from "./iconManager.js";
 import { Intellihide } from "./intellihide.js";
 import { Magnification } from "./magnification.js";
 import { SignalManager } from "./signalManager.js";
+
+const POSITIONS = { BOTTOM: 0, LEFT: 1, RIGHT: 2, TOP: 3 } as const;
 
 export class DockManager {
   private _signals: SignalManager;
@@ -22,14 +25,20 @@ export class DockManager {
   private _recentlyLaunched: Set<string> = new Set();
   private _debounceSourceId: number | null = null;
   private _originalDashVisible?: boolean;
+  private _dockPosition: number = POSITIONS.BOTTOM;
+  private _blurEffect: Shell.BlurEffect | null = null;
 
   private static readonly MARGIN_BOTTOM = 12;
-  private static readonly DOCK_HEIGHT = 60;
   private static readonly MIN_DOCK_WIDTH = 300;
   private static readonly LAUNCH_DEBOUNCE_MS = 400;
 
   constructor() {
     this._signals = new SignalManager();
+  }
+
+  private get _dockHeight(): number {
+    const iconSize = this._settings?.get_int("icon-size") ?? 48;
+    return iconSize + 16; // icon height (padded + indicator)
   }
 
   enable(settings: Gio.Settings): void {
@@ -70,6 +79,9 @@ export class DockManager {
     );
     this._magnification.start();
 
+    this._applyDockStyle();
+    this._applyDockPosition();
+    this._registerKeybindings();
     this._updatePosition();
     this._signals.connect(global.display, "workareas-changed", () => this._updatePosition());
 
@@ -136,6 +148,21 @@ export class DockManager {
         this._startAutoHide();
       }
     });
+    this._signals.connect(settings, "changed::dock-opacity", () => this._applyDockStyle());
+    this._signals.connect(settings, "changed::dock-background-color", () => this._applyDockStyle());
+    this._signals.connect(settings, "changed::dock-border-radius", () => this._applyDockStyle());
+    this._signals.connect(settings, "changed::dock-blur-enabled", () => this._applyDockStyle());
+    this._signals.connect(settings, "changed::dock-position", () => this._applyDockPosition());
+    this._signals.connect(settings, "changed::show-applications-button", () => {
+      if (this._iconManager) {
+        this._iconManager.setShowAppButton(settings.get_boolean("show-applications-button"));
+      }
+      this._updatePosition();
+    });
+    this._signals.connect(settings, "changed::enable-keyboard-nav", () => {
+      this._removeKeybindings();
+      this._registerKeybindings();
+    });
 
     if (settings.get_boolean("auto-hide")) {
       this._startAutoHide();
@@ -163,6 +190,7 @@ export class DockManager {
       this._magnification = null;
     }
 
+    this._removeKeybindings();
     this._signals.disconnectAll();
 
     if (this._debounceSourceId !== null) {
@@ -192,10 +220,11 @@ export class DockManager {
     this._visibility = new DockVisibility(
       this._container,
       this._intellihide,
-      DockManager.DOCK_HEIGHT,
+      this._dockHeight,
       DockManager.MARGIN_BOTTOM,
       this._settings.get_int("animation-duration"),
       this._settings.get_int("show-threshold"),
+      this._dockPosition,
     );
     // Must set dock rect AFTER creating intellihide so it can detect overlap.
     this._updatePosition();
@@ -213,6 +242,7 @@ export class DockManager {
     }
     if (this._container) {
       this._container.visible = true;
+      this._container.opacity = 255;
       this._updatePosition();
     }
   }
@@ -291,17 +321,57 @@ export class DockManager {
     const monitor = Main.layoutManager.primaryMonitor;
     if (!monitor) return;
 
-    // Calculate width from children instead of relying on get_preferred_width.
-    const children = this._container.get_n_children();
+    const iconCount = this._iconManager?.getIconCount() ?? 0;
+    const hasSeparator = this._iconManager?.hasSeparator() ?? false;
+    const hasAppButton = this._iconManager?.hasAppButton() ?? false;
     const iconPadded = (this._settings?.get_int("icon-size") ?? 48) + 12;
-    const spacing = 6; // matches CSS spacing
-    const padding = 20; // matches CSS padding (10px each side)
-    const contentWidth = children > 0 ? children * iconPadded + (children - 1) * spacing : 0;
-    const dockWidth = Math.max(contentWidth + padding, DockManager.MIN_DOCK_WIDTH);
-    const x = monitor.x + Math.floor((monitor.width - dockWidth) / 2);
-    const y = monitor.y + monitor.height - DockManager.DOCK_HEIGHT - DockManager.MARGIN_BOTTOM;
+    const spacing = 6;
+    const padding = 20;
+    const separatorWidth = 9; // 1px width + 4px margin each side
+    const contentSize =
+      iconCount > 0
+        ? iconCount * iconPadded +
+          (iconCount - 1) * spacing +
+          (hasSeparator ? separatorWidth + spacing : 0) +
+          (hasAppButton ? iconPadded + spacing : 0)
+        : hasAppButton
+          ? iconPadded
+          : 0;
+    const dockAxisSize = Math.max(contentSize + padding, DockManager.MIN_DOCK_WIDTH);
 
-    this._container.set_size(dockWidth, DockManager.DOCK_HEIGHT);
+    let x = 0;
+    let y = 0;
+    let w = 0;
+    let h = 0;
+
+    switch (this._dockPosition) {
+      case POSITIONS.BOTTOM:
+        w = dockAxisSize;
+        h = this._dockHeight;
+        x = monitor.x + Math.floor((monitor.width - w) / 2);
+        y = monitor.y + monitor.height - h - DockManager.MARGIN_BOTTOM;
+        break;
+      case POSITIONS.TOP:
+        w = dockAxisSize;
+        h = this._dockHeight;
+        x = monitor.x + Math.floor((monitor.width - w) / 2);
+        y = monitor.y + DockManager.MARGIN_BOTTOM;
+        break;
+      case POSITIONS.LEFT:
+        w = this._dockHeight;
+        h = dockAxisSize;
+        x = monitor.x + DockManager.MARGIN_BOTTOM;
+        y = monitor.y + Math.floor((monitor.height - h) / 2);
+        break;
+      case POSITIONS.RIGHT:
+        w = this._dockHeight;
+        h = dockAxisSize;
+        x = monitor.x + monitor.width - w - DockManager.MARGIN_BOTTOM;
+        y = monitor.y + Math.floor((monitor.height - h) / 2);
+        break;
+    }
+
+    this._container.set_size(w, h);
     this._container.set_position(x, y);
 
     if (this._visibility) {
@@ -309,7 +379,7 @@ export class DockManager {
     }
 
     if (this._intellihide) {
-      this._intellihide.setDockRect(x, y, dockWidth, DockManager.DOCK_HEIGHT);
+      this._intellihide.setDockRect(x, y, w, h);
     }
   }
 
@@ -329,6 +399,141 @@ export class DockManager {
     const dashSpacer = (dash as unknown as { _dashSpacer?: St.Widget })._dashSpacer;
     if (dashSpacer) {
       dashSpacer.visible = true;
+    }
+  }
+
+  private _applyDockStyle(): void {
+    if (!this._container || !this._settings) return;
+
+    const opacity = this._settings.get_int("dock-opacity");
+    const color = this._settings.get_string("dock-background-color");
+    const radius = this._settings.get_int("dock-border-radius");
+    const blurEnabled = this._settings.get_boolean("dock-blur-enabled");
+
+    // Parse hex color
+    const r = parseInt(color.slice(1, 3), 16) || 30;
+    const g = parseInt(color.slice(3, 5), 16) || 30;
+    const b = parseInt(color.slice(5, 7), 16) || 30;
+    const alpha = opacity / 100;
+
+    this._container.style = `
+      background-color: rgba(${r}, ${g}, ${b}, ${alpha});
+      border-radius: ${radius}px;
+      padding: 4px 10px;
+      spacing: 6px;
+    `;
+
+    // Handle blur effect
+    if (blurEnabled && !this._blurEffect) {
+      this._blurEffect = new Shell.BlurEffect();
+      this._blurEffect.set({ sigma: 30, mode: Shell.BlurMode.BACKGROUND });
+      this._container.add_effect(this._blurEffect);
+    } else if (!blurEnabled && this._blurEffect) {
+      this._container.remove_effect(this._blurEffect);
+      this._blurEffect = null;
+    }
+  }
+
+  private _applyDockPosition(): void {
+    if (!this._container) return;
+
+    this._dockPosition = this._settings?.get_int("dock-position") ?? POSITIONS.BOTTOM;
+
+    const isVertical =
+      this._dockPosition === POSITIONS.LEFT || this._dockPosition === POSITIONS.RIGHT;
+    this._container.vertical = isVertical;
+
+    // Update magnification pivot point based on position
+    if (this._magnification) {
+      switch (this._dockPosition) {
+        case POSITIONS.TOP:
+          this._magnification.setPivotPoint(0.5, 0.0);
+          break;
+        case POSITIONS.LEFT:
+          this._magnification.setPivotPoint(0.0, 0.5);
+          break;
+        case POSITIONS.RIGHT:
+          this._magnification.setPivotPoint(1.0, 0.5);
+          break;
+        default: // BOTTOM
+          this._magnification.setPivotPoint(0.5, 1.0);
+      }
+    }
+
+    // Update visibility edge
+    if (this._visibility) {
+      this._visibility.setEdge(this._dockPosition);
+    }
+
+    this._updatePosition();
+  }
+
+  private _registerKeybindings(): void {
+    if (!this._settings) return;
+    if (!this._settings.get_boolean("enable-keyboard-nav")) return;
+
+    const settings = this._settings;
+
+    Main.wm.addKeybinding(
+      "toggle-dock",
+      settings,
+      Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
+      Shell.ActionMode.NORMAL,
+      () => this._toggleDockVisibility(),
+    );
+
+    // Super+1 through Super+9, Super+0 for position 10
+    for (let i = 1; i <= 9; i++) {
+      Main.wm.addKeybinding(
+        `focus-app-${i}`,
+        settings,
+        Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
+        Shell.ActionMode.NORMAL,
+        () => this._focusAppByIndex(i - 1),
+      );
+    }
+    Main.wm.addKeybinding(
+      "focus-app-10",
+      settings,
+      Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
+      Shell.ActionMode.NORMAL,
+      () => this._focusAppByIndex(9),
+    );
+  }
+
+  private _removeKeybindings(): void {
+    Main.wm.removeKeybinding("toggle-dock");
+    for (let i = 1; i <= 9; i++) {
+      Main.wm.removeKeybinding(`focus-app-${i}`);
+    }
+    Main.wm.removeKeybinding("focus-app-10");
+  }
+
+  private _toggleDockVisibility(): void {
+    if (!this._container) return;
+    this._container.visible = !this._container.visible;
+    if (this._container.visible && this._visibility) {
+      // Force show even if auto-hide would hide it
+      this._container.opacity = 255;
+    }
+  }
+
+  private _focusAppByIndex(index: number): void {
+    if (!this._iconManager) return;
+    const actors = this._iconManager.getIconActors();
+    if (index >= actors.length) return;
+
+    const data = (actors[index] as unknown as Record<string, unknown>)._appData as
+      | {
+          appId: string;
+        }
+      | undefined;
+    if (!data) return;
+
+    const appSystem = Shell.AppSystem.get_default();
+    const app = appSystem.lookup_app(data.appId);
+    if (app) {
+      this._onAppClicked(app);
     }
   }
 }

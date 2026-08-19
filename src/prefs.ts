@@ -37,6 +37,72 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     settings.bind("icon-size", iconSizeRow, "value", BIND_FLAGS);
     appearanceGroup.add(iconSizeRow);
 
+    // Position group
+    const positionGroup = new Adw.PreferencesGroup({
+      title: "Position",
+      description: "Where the dock appears on screen",
+    });
+    page.add(positionGroup);
+
+    const positionModel = new Gtk.StringList({
+      strings: ["Bottom", "Left", "Right", "Top"],
+    });
+    const positionRow = new Adw.ComboRow({
+      title: "Dock position",
+      subtitle: "Choose which screen edge the dock attaches to",
+      model: positionModel,
+      selected: settings.get_int("dock-position"),
+    });
+    positionRow.connect("notify::selected", () => {
+      settings.set_int("dock-position", positionRow.selected);
+    });
+    this._trackSignal(settings, "changed::dock-position", () => {
+      positionRow.selected = settings.get_int("dock-position");
+    });
+    positionGroup.add(positionRow);
+
+    // Background group
+    const bgGroup = new Adw.PreferencesGroup({
+      title: "Background",
+      description: "Customize the dock background",
+    });
+    page.add(bgGroup);
+
+    const opacityRow = new Adw.SpinRow({
+      title: "Opacity",
+      subtitle: "Dock background opacity (0-100%)",
+      adjustment: new Gtk.Adjustment({
+        lower: 0,
+        upper: 100,
+        step_increment: 5,
+        page_increment: 10,
+        value: settings.get_int("dock-opacity"),
+      }),
+    });
+    settings.bind("dock-opacity", opacityRow, "value", BIND_FLAGS);
+    bgGroup.add(opacityRow);
+
+    const borderRadiusRow = new Adw.SpinRow({
+      title: "Border radius",
+      subtitle: "Corner radius of the dock in pixels",
+      adjustment: new Gtk.Adjustment({
+        lower: 0,
+        upper: 50,
+        step_increment: 1,
+        page_increment: 4,
+        value: settings.get_int("dock-border-radius"),
+      }),
+    });
+    settings.bind("dock-border-radius", borderRadiusRow, "value", BIND_FLAGS);
+    bgGroup.add(borderRadiusRow);
+
+    const blurRow = new Adw.SwitchRow({
+      title: "Enable blur",
+      subtitle: "Frosted glass effect behind the dock",
+    });
+    settings.bind("dock-blur-enabled", blurRow, "active", BIND_FLAGS);
+    bgGroup.add(blurRow);
+
     // Behavior group
     const behaviorGroup = new Adw.PreferencesGroup({
       title: "Behavior",
@@ -84,6 +150,20 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     });
     settings.bind("show-threshold", showThresholdRow, "value", BIND_FLAGS);
     behaviorGroup.add(showThresholdRow);
+
+    const keyboardNavRow = new Adw.SwitchRow({
+      title: "Keyboard navigation",
+      subtitle: "Super+D to toggle dock, Super+1-9 to focus apps",
+    });
+    settings.bind("enable-keyboard-nav", keyboardNavRow, "active", BIND_FLAGS);
+    behaviorGroup.add(keyboardNavRow);
+
+    const appButtonRow = new Adw.SwitchRow({
+      title: "Show applications button",
+      subtitle: "Show a grid icon to access all apps",
+    });
+    settings.bind("show-applications-button", appButtonRow, "active", BIND_FLAGS);
+    behaviorGroup.add(appButtonRow);
 
     // Magnification group
     const magGroup = new Adw.PreferencesGroup({
