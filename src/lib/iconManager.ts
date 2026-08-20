@@ -43,6 +43,7 @@ export class IconManager {
   private _contextMenu: InstanceType<typeof St.BoxLayout> | null = null;
   private _separator: InstanceType<typeof St.Widget> | null = null;
   private _appButton: InstanceType<typeof St.BoxLayout> | null = null;
+  private _appButtonIcon: InstanceType<typeof St.Icon> | null = null;
   private _showAppButton: boolean = true;
 
   constructor(
@@ -71,6 +72,11 @@ export class IconManager {
     this._iconSize = size;
     for (const actor of this._icons.values()) {
       this._applyIconSize(actor);
+    }
+    if (this._appButton && this._appButtonIcon) {
+      this._appButtonIcon.set_icon_size(this._iconSize);
+      const padded = this._iconSize + 12;
+      this._appButton.set_size(padded, padded + 4);
     }
   }
 
@@ -690,15 +696,19 @@ export class IconManager {
       height: padded + 4,
     });
 
-    const icon = new St.Icon({
+    this._appButtonIcon = new St.Icon({
       icon_name: "view-app-grid-symbolic",
       icon_size: this._iconSize,
       style_class: "macos-dock-app-button-icon",
     });
-    this._appButton.add_child(icon);
+    this._appButton.add_child(this._appButtonIcon);
 
     this._appButton.connect("button-press-event", () => {
-      Main.overview.toggle();
+      if (Main.overview.visible) {
+        Main.overview.hide();
+      } else {
+        Main.overview.showApps();
+      }
       return Clutter.EVENT_STOP;
     });
 
@@ -722,6 +732,7 @@ export class IconManager {
     this._container.remove_child(this._appButton);
     this._appButton.destroy();
     this._appButton = null;
+    this._appButtonIcon = null;
 
     // Notify dock to resize
     if (this._onIconsChanged) this._onIconsChanged();

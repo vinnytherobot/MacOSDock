@@ -38,7 +38,9 @@ export class DockManager {
 
   private get _dockHeight(): number {
     const iconSize = this._settings?.get_int("icon-size") ?? 48;
-    return iconSize + 16; // icon height (padded + indicator)
+    const iconActorHeight = iconSize + 16;
+    const verticalPadding = 8; // 4px top + 4px bottom from _applyDockStyle
+    return iconActorHeight + verticalPadding;
   }
 
   enable(settings: Gio.Settings): void {
