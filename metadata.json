@@ -4,6 +4,6 @@
   "uuid": "macos-dock@vinnytherobot.github.io",
   "shell-version": ["45", "46", "47", "48", "49", "50"],
   "url": "https://github.com/vinnytherobot/MacOSDock",
-  "version": 4,
+  "version": 5,
   "settings-schema": "org.gnome.shell.extensions.macosdock"
 }
