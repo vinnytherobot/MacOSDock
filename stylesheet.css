@@ -94,3 +94,53 @@
 .macos-dock-app-button-icon {
   icon-shadow: 0 2px 3px rgba(0, 0, 0, 0.4);
 }
+
+/* Window Preview Popup */
+.macos-dock-preview-popup {
+  background-color: rgba(40, 40, 40, 0.95);
+  border-radius: 10px;
+  padding: 8px;
+  spacing: 8px;
+}
+
+.macos-dock-preview-grid {
+  spacing: 6px;
+}
+
+.macos-dock-preview-row {
+  spacing: 6px;
+}
+
+.macos-dock-preview-thumb {
+  border-radius: 6px;
+  padding: 4px;
+  spacing: 4px;
+}
+
+.macos-dock-preview-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.macos-dock-preview-focused {
+  border: 2px solid rgba(100, 149, 237, 0.8);
+}
+
+.macos-dock-preview-close-btn {
+  background-color: rgba(255, 60, 60, 0.8);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  color: white;
+  font-size: 10px;
+  padding: 0;
+}
+
+.macos-dock-preview-close-btn:hover {
+  background-color: rgba(255, 60, 60, 1.0);
+}
+
+.macos-dock-preview-title {
+  color: white;
+  font-size: 11px;
+  max-width: 180px;
+}

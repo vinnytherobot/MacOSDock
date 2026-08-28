@@ -152,5 +152,15 @@
       <summary>Show applications button</summary>
       <description>Show a button to access all installed applications</description>
     </key>
+    <key name="window-previews" type="b">
+      <default>true</default>
+      <summary>Window previews</summary>
+      <description>Show live thumbnail previews of app windows on hover</description>
+    </key>
+    <key name="preview-scale" type="i">
+      <default>200</default>
+      <summary>Preview thumbnail width</summary>
+      <description>Width of each preview thumbnail in pixels (100-400)</description>
+    </key>
   </schema>
 </schemalist>

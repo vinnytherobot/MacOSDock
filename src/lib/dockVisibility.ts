@@ -4,6 +4,7 @@ import type St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import type { Intellihide, OverlapStatus } from "./intellihide.js";
 import { SignalManager } from "./signalManager.js";
+import type { WindowPreviewPopup } from "./windowPreview.js";
 
 const HIDE_THRESHOLD = 100; // hide only when pointer is 100px+ above bottom
 
@@ -20,6 +21,7 @@ export class DockVisibility {
   private _showThreshold: number;
   private _pollId: number | null = null;
   private _edge: number; // 0=bottom, 1=left, 2=right, 3=top
+  private _previewPopup: WindowPreviewPopup | null = null;
 
   constructor(
     container: Container,
@@ -36,6 +38,10 @@ export class DockVisibility {
     this._animationDuration = animationDuration;
     this._showThreshold = showThreshold;
     this._edge = edge;
+  }
+
+  setPreviewPopup(popup: WindowPreviewPopup): void {
+    this._previewPopup = popup;
   }
 
   setEdge(edge: number): void {
@@ -121,6 +127,19 @@ export class DockVisibility {
 
   private _check(pointerX: number, pointerY: number): void {
     if (!this._monitor) return;
+
+    // Don't hide if pointer is inside the preview popup
+    if (this._previewPopup && this._previewPopup.isVisible()) {
+      const bounds = this._previewPopup.getBounds();
+      if (bounds) {
+        const insidePopup =
+          pointerX >= bounds.x &&
+          pointerX <= bounds.x + bounds.width &&
+          pointerY >= bounds.y &&
+          pointerY <= bounds.y + bounds.height;
+        if (insidePopup) return;
+      }
+    }
 
     let shouldShow = false;
     let shouldHide = false;
