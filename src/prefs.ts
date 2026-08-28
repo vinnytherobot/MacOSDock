@@ -165,6 +165,27 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     settings.bind("show-applications-button", appButtonRow, "active", BIND_FLAGS);
     behaviorGroup.add(appButtonRow);
 
+    const windowPreviewsRow = new Adw.SwitchRow({
+      title: "Window previews",
+      subtitle: "Show live thumbnail previews of open windows on hover",
+    });
+    settings.bind("window-previews", windowPreviewsRow, "active", BIND_FLAGS);
+    behaviorGroup.add(windowPreviewsRow);
+
+    const previewScaleRow = new Adw.SpinRow({
+      title: "Preview thumbnail width",
+      subtitle: "Width of each preview thumbnail in pixels",
+      adjustment: new Gtk.Adjustment({
+        lower: 100,
+        upper: 400,
+        step_increment: 10,
+        page_increment: 20,
+        value: settings.get_int("preview-scale"),
+      }),
+    });
+    settings.bind("preview-scale", previewScaleRow, "value", BIND_FLAGS);
+    behaviorGroup.add(previewScaleRow);
+
     // Magnification group
     const magGroup = new Adw.PreferencesGroup({
       title: "Magnification",
