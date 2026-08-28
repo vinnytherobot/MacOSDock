@@ -5,6 +5,7 @@ import Shell from "gi://Shell";
 import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { SignalManager } from "./signalManager.js";
+import type { WindowPreviewPopup } from "./windowPreview.js";
 
 export type DockIconClicked = (app: Shell.App) => void;
 export type IconsChanged = () => void;
@@ -45,6 +46,7 @@ export class IconManager {
   private _appButton: InstanceType<typeof St.BoxLayout> | null = null;
   private _appButtonIcon: InstanceType<typeof St.Icon> | null = null;
   private _showAppButton: boolean = true;
+  private _previewPopup: WindowPreviewPopup | null = null;
 
   constructor(
     container: InstanceType<typeof St.BoxLayout>,
@@ -103,6 +105,10 @@ export class IconManager {
     this._updateAppButton();
   }
 
+  setPreviewPopup(popup: WindowPreviewPopup): void {
+    this._previewPopup = popup;
+  }
+
   start(): void {
     const appSystem = Shell.AppSystem.get_default();
 
@@ -144,6 +150,10 @@ export class IconManager {
     }
 
     this._closeContextMenu();
+
+    if (this._previewPopup) {
+      this._previewPopup.stop();
+    }
 
     this._container.remove_all_children();
     this._icons.clear();
@@ -372,8 +382,17 @@ export class IconManager {
     this._signals.connect(actor, "notify::hover", () => {
       if (actor.hover) {
         this._showTooltip(actor, app.get_name());
+        // Show window preview popup
+        if (this._previewPopup && this._previewPopup.isEnabled()) {
+          this._previewPopup.cancelScheduledHide();
+          this._previewPopup.show(app, actor);
+        }
       } else {
         this._hideTooltip();
+        // Schedule hide of preview popup (delay allows mouse to move to popup)
+        if (this._previewPopup && this._previewPopup.isVisible()) {
+          this._previewPopup.scheduleHide();
+        }
       }
       return Clutter.EVENT_PROPAGATE;
     });

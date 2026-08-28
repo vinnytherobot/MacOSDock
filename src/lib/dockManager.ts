@@ -10,6 +10,7 @@ import { IconManager } from "./iconManager.js";
 import { Intellihide } from "./intellihide.js";
 import { Magnification } from "./magnification.js";
 import { SignalManager } from "./signalManager.js";
+import { WindowPreviewPopup } from "./windowPreview.js";
 
 const POSITIONS = { BOTTOM: 0, LEFT: 1, RIGHT: 2, TOP: 3 } as const;
 
@@ -27,6 +28,7 @@ export class DockManager {
   private _originalDashVisible?: boolean;
   private _dockPosition: number = POSITIONS.BOTTOM;
   private _blurEffect: Shell.BlurEffect | null = null;
+  private _previewPopup: WindowPreviewPopup | null = null;
 
   private static readonly MARGIN_BOTTOM = 12;
   private static readonly MIN_DOCK_WIDTH = 300;
@@ -69,6 +71,13 @@ export class DockManager {
     );
     this._iconManager.setOnClicked((app) => this._onAppClicked(app));
     this._iconManager.setOnIconsChanged(() => this._updatePosition());
+
+    // Window preview popup
+    this._previewPopup = new WindowPreviewPopup();
+    this._previewPopup.setEnabled(settings.get_boolean("window-previews"));
+    this._previewPopup.setPreviewWidth(settings.get_int("preview-scale"));
+    this._iconManager.setPreviewPopup(this._previewPopup);
+
     this._iconManager.start();
 
     // Magnification: scale icons on hover.
@@ -165,6 +174,16 @@ export class DockManager {
       this._removeKeybindings();
       this._registerKeybindings();
     });
+    this._signals.connect(settings, "changed::window-previews", () => {
+      if (this._previewPopup) {
+        this._previewPopup.setEnabled(settings.get_boolean("window-previews"));
+      }
+    });
+    this._signals.connect(settings, "changed::preview-scale", () => {
+      if (this._previewPopup) {
+        this._previewPopup.setPreviewWidth(settings.get_int("preview-scale"));
+      }
+    });
 
     if (settings.get_boolean("auto-hide")) {
       this._startAutoHide();
@@ -190,6 +209,11 @@ export class DockManager {
     if (this._magnification) {
       this._magnification.stop();
       this._magnification = null;
+    }
+
+    if (this._previewPopup) {
+      this._previewPopup.stop();
+      this._previewPopup = null;
     }
 
     this._removeKeybindings();
@@ -228,6 +252,9 @@ export class DockManager {
       this._settings.get_int("show-threshold"),
       this._dockPosition,
     );
+    if (this._previewPopup) {
+      this._visibility.setPreviewPopup(this._previewPopup);
+    }
     // Must set dock rect AFTER creating intellihide so it can detect overlap.
     this._updatePosition();
     this._visibility.start();
