@@ -3,6 +3,10 @@ dist/
 *.js.map
 schemas/*.compiled
 
+# Internal docs
+ROADMAP.md
+FEATURES.md
+
 # AI
 .mimocode
 .claude
