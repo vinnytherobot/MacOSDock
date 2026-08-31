@@ -18,7 +18,12 @@
 - **Magnification effect** with adjustable scale and falloff distance
 - **Running indicators** — dots per window (macOS style) or horizontal bar
 - **Click-to-minimize** for focused applications
-- **Configurable performance** settings for framerate and animation duration
+- **Window previews** — live thumbnail previews of open windows on hover
+- **Dock customization** — adjustable opacity, background color, border radius, and blur effect
+- **Multiple positions** — place the dock at the bottom, top, left, or right edge
+- **Keyboard navigation** — Super+D to toggle dock, Super+1-9 to focus apps
+- **Applications button** — access all installed apps from the dock
+- **Configurable performance** settings for framerate, animation duration, and icon quality
 - **Native GNOME integration** — hides the default dash to avoid conflicts
 
 ## Compatibility
@@ -71,6 +76,25 @@ gnome-extensions prefs macos-dock@vinnytherobot.github.io
 | Running indicators   | Show running app indicators             | Enabled |
 | Indicator style      | Dots per window or horizontal bar       | Dots    |
 | Framerate            | Animation framerate (Hz)                | 60      |
+| Icon size            | Size of dock icons (16-96px)            | 48      |
+| Icon quality         | Resolution multiplier (x1/x2/x4)       | x2      |
+| Dock position        | Bottom, top, left, or right             | Bottom  |
+| Dock opacity         | Background opacity (0-100%)             | 60      |
+| Dock background      | Custom hex color for dock background    | #1e1e1e |
+| Border radius        | Corner radius of dock (px)              | 16      |
+| Enable blur          | Frosted glass effect behind dock        | Disabled|
+| Keyboard navigation  | Enable keyboard shortcuts               | Enabled |
+| Show applications    | Show apps button in dock                | Enabled |
+| Window previews      | Show live thumbnails on hover           | Enabled |
+| Preview width        | Width of preview thumbnails (100-400px) | 200     |
+
+### Keyboard Shortcuts
+
+| Shortcut       | Action                     |
+| -------------- | -------------------------- |
+| Super+D        | Toggle dock visibility     |
+| Super+1-9      | Focus app 1-9 in dock      |
+| Super+0        | Focus app 10 in dock       |
 
 ## Development
 
@@ -92,6 +116,20 @@ npm run build
 ```bash
 npm run watch
 ```
+
+### Lint
+
+```bash
+npm run lint
+```
+
+### Package for Distribution
+
+```bash
+make zip
+```
+
+This creates a `.zip` file ready for upload to [extensions.gnome.org](https://extensions.gnome.org).
 
 ## License
 
