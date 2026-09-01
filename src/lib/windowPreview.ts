@@ -24,9 +24,9 @@ export class WindowPreviewPopup {
   private _thumbs: ThumbData[] = [];
   private _updateTimer: number | null = null;
   private _closeTimer: number | null = null;
+  private _refreshTimer: number | null = null;
   private _visible = false;
   private _previewWidth: number;
-  private _enabled: boolean = true;
   private _lastIconActor: IconActor | null = null;
 
   constructor() {
@@ -34,19 +34,8 @@ export class WindowPreviewPopup {
     this._previewWidth = 200;
   }
 
-  setEnabled(enabled: boolean): void {
-    this._enabled = enabled;
-    if (!enabled) {
-      this.hide();
-    }
-  }
-
   setPreviewWidth(width: number): void {
     this._previewWidth = width;
-  }
-
-  isEnabled(): boolean {
-    return this._enabled;
   }
 
   isVisible(): boolean {
@@ -65,8 +54,6 @@ export class WindowPreviewPopup {
   }
 
   show(app: Shell.App, iconActor: IconActor): void {
-    if (!this._enabled) return;
-
     const windows = app.get_windows();
     if (windows.length === 0) return;
 
@@ -83,6 +70,7 @@ export class WindowPreviewPopup {
 
   hide(): void {
     this._cancelCloseTimer();
+    this._cancelRefreshTimer();
     this._stopUpdateTimer();
 
     if (this._popup) {
@@ -107,6 +95,7 @@ export class WindowPreviewPopup {
 
   stop(): void {
     this._cancelCloseTimer();
+    this._cancelRefreshTimer();
     this._stopUpdateTimer();
     this._destroyPopup();
   }
@@ -252,8 +241,13 @@ export class WindowPreviewPopup {
     closeBtn.set_pivot_point(1.0, 0.0);
     closeBtn.connect("clicked", () => {
       metaWin.delete(global.get_current_time());
-      GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+      if (this._refreshTimer !== null) {
+        GLib.source_remove(this._refreshTimer);
+        this._refreshTimer = null;
+      }
+      this._refreshTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
         this._refreshAfterClose(app);
+        this._refreshTimer = null;
         return GLib.SOURCE_REMOVE;
       });
     });
@@ -400,6 +394,7 @@ export class WindowPreviewPopup {
 
   private _destroyPopupSync(): void {
     this._cancelCloseTimer();
+    this._cancelRefreshTimer();
     this._stopUpdateTimer();
     this._destroyPopup();
   }
@@ -426,6 +421,13 @@ export class WindowPreviewPopup {
     if (this._closeTimer !== null) {
       GLib.source_remove(this._closeTimer);
       this._closeTimer = null;
+    }
+  }
+
+  private _cancelRefreshTimer(): void {
+    if (this._refreshTimer !== null) {
+      GLib.source_remove(this._refreshTimer);
+      this._refreshTimer = null;
     }
   }
 }

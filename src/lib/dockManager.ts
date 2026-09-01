@@ -74,9 +74,9 @@ export class DockManager {
 
     // Window preview popup
     this._previewPopup = new WindowPreviewPopup();
-    this._previewPopup.setEnabled(settings.get_boolean("window-previews"));
     this._previewPopup.setPreviewWidth(settings.get_int("preview-scale"));
     this._iconManager.setPreviewPopup(this._previewPopup);
+    this._iconManager.setWindowPreviewsEnabled(settings.get_boolean("window-previews"));
 
     this._iconManager.start();
 
@@ -175,8 +175,12 @@ export class DockManager {
       this._registerKeybindings();
     });
     this._signals.connect(settings, "changed::window-previews", () => {
-      if (this._previewPopup) {
-        this._previewPopup.setEnabled(settings.get_boolean("window-previews"));
+      const enabled = settings.get_boolean("window-previews");
+      if (this._iconManager) {
+        this._iconManager.setWindowPreviewsEnabled(enabled);
+      }
+      if (!enabled && this._previewPopup) {
+        this._previewPopup.hide();
       }
     });
     this._signals.connect(settings, "changed::preview-scale", () => {
