@@ -19,17 +19,42 @@ src/
     magnification.ts    # Hover magnification effect
     intellihide.ts      # Window overlap detection
     signalManager.ts    # GObject signal lifecycle
+    windowPreview.ts    # Window thumbnail preview popup
 ```
 
-## Key Patterns
+## GNOME Extension Standards
+
+All code must follow the [EGO Review Guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html) and [GNOME Extension Best Practices](https://gjs.guide/extensions/review-guidelines/best-practices.html).
+
+### Lifecycle and Cleanup
+
+- Each class owns its resources (signals, GLib sources, actors) and cleans them up in `stop()` or `disable()`.
+- Do not initialize in one class and clean up in another. The owner calls `stop()` on child instances.
+- After `stop()`/`disable()`, null out references so instances are never reused.
+- Do **not** use boolean guard flags like `this._enabled` or `this._destroyed` to protect against improper lifecycle calls.
+
+### GLib Sources and Timeouts
+
+- Track every `GLib.timeout_add` / `GLib.idle_add` source ID in a field.
+- Remove existing sources immediately before creating a new one of the same kind.
+- Keep source removal next to source creation so reviewers can verify cleanup.
+- Remove all active sources in `stop()` before destroying actors.
+
+### Signal Management
+
+All GObject signal connections must go through `SignalManager` to ensure proper cleanup in `stop()`/`disable()`. Never call `connect()` directly without storing the connection ID.
 
 ### Settings
 
 All settings are defined in `schemas/org.gnome.shell.extensions.macosdock.gschema.xml`. Settings are read via `Gio.Settings` and changes are propagated through signal listeners in `dockManager.ts`.
 
-### Signal Management
+Feature toggles (e.g. window previews) are checked at the call site — in `dockManager.ts` or `iconManager.ts` — not inside popup or widget classes.
 
-All GObject signal connections must go through `SignalManager` to ensure proper cleanup in `disable()`. Never call `connect()` directly without storing the connection ID.
+### enable() / disable()
+
+Keep `enable()` and `disable()` adjacent in the entry point class. `disable()` must mirror `enable()` cleanup in reverse dependency order.
+
+## Key Patterns
 
 ### Icon Lifecycle
 
@@ -38,6 +63,10 @@ Icons are created in `iconManager.ts` and managed through the `_icons` Map. The 
 ### Magnification
 
 Magnification uses polling at configurable framerates. Scale transitions use linear interpolation (lerp) for smooth visual feedback.
+
+### Window Previews
+
+`WindowPreviewPopup` is owned by `DockManager`. `IconManager` triggers show/hide on hover when the `window-previews` setting is enabled. Only `DockManager.disable()` calls `WindowPreviewPopup.stop()`.
 
 ## Common Tasks
 

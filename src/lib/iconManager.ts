@@ -46,6 +46,7 @@ export class IconManager {
   private _appButton: InstanceType<typeof St.BoxLayout> | null = null;
   private _appButtonIcon: InstanceType<typeof St.Icon> | null = null;
   private _showAppButton: boolean = true;
+  private _windowPreviewsEnabled: boolean = false;
   private _previewPopup: WindowPreviewPopup | null = null;
 
   constructor(
@@ -109,6 +110,10 @@ export class IconManager {
     this._previewPopup = popup;
   }
 
+  setWindowPreviewsEnabled(enabled: boolean): void {
+    this._windowPreviewsEnabled = enabled;
+  }
+
   start(): void {
     const appSystem = Shell.AppSystem.get_default();
 
@@ -150,10 +155,6 @@ export class IconManager {
     }
 
     this._closeContextMenu();
-
-    if (this._previewPopup) {
-      this._previewPopup.stop();
-    }
 
     this._container.remove_all_children();
     this._icons.clear();
@@ -383,7 +384,7 @@ export class IconManager {
       if (actor.hover) {
         this._showTooltip(actor, app.get_name());
         // Show window preview popup
-        if (this._previewPopup && this._previewPopup.isEnabled()) {
+        if (this._windowPreviewsEnabled && this._previewPopup) {
           this._previewPopup.cancelScheduledHide();
           this._previewPopup.show(app, actor);
         }
