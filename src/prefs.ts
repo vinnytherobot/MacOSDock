@@ -5,7 +5,7 @@ import { ExtensionPreferences } from "resource:///org/gnome/Shell/Extensions/js/
 const BIND_FLAGS = 0 | 1 | 2 | 4; // DEFAULT | GET | SET | NO_SENSITIVITY
 
 export default class MacosDockPreferences extends ExtensionPreferences {
-  private _signalIds: number[] = [];
+  private _signalConnections: { source: { disconnect(id: number): void }; id: number }[] = [];
 
   async fillPreferencesWindow(window: Adw.PreferencesWindow): Promise<void> {
     const settings = this.getSettings();
@@ -165,6 +165,30 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     settings.bind("show-applications-button", appButtonRow, "active", BIND_FLAGS);
     behaviorGroup.add(appButtonRow);
 
+    const showRunningAppsRow = new Adw.SwitchRow({
+      title: "Show running applications",
+      subtitle: "Show non-favorite running apps in the dock",
+    });
+    settings.bind("show-running-apps", showRunningAppsRow, "active", BIND_FLAGS);
+    behaviorGroup.add(showRunningAppsRow);
+
+    const workspaceModeModel = new Gtk.StringList({
+      strings: ["All workspaces", "Current workspace only"],
+    });
+    const workspaceModeRow = new Adw.ComboRow({
+      title: "Workspace mode",
+      subtitle: "Which workspaces show running applications",
+      model: workspaceModeModel,
+      selected: settings.get_int("dock-workspace-mode"),
+    });
+    workspaceModeRow.connect("notify::selected", () => {
+      settings.set_int("dock-workspace-mode", workspaceModeRow.selected);
+    });
+    this._trackSignal(settings, "changed::dock-workspace-mode", () => {
+      workspaceModeRow.selected = settings.get_int("dock-workspace-mode");
+    });
+    behaviorGroup.add(workspaceModeRow);
+
     const windowPreviewsRow = new Adw.SwitchRow({
       title: "Window previews",
       subtitle: "Show live thumbnail previews of open windows on hover",
@@ -273,6 +297,27 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     });
     indGroup.add(indicatorStyleRow);
 
+    // Media group
+    const mediaGroup = new Adw.PreferencesGroup({
+      title: "Media",
+      description: "Music player integration",
+    });
+    page.add(mediaGroup);
+
+    const mediaIndicatorRow = new Adw.SwitchRow({
+      title: "Media indicator",
+      subtitle: "Show a music note on the currently playing app icon",
+    });
+    settings.bind("media-indicator", mediaIndicatorRow, "active", BIND_FLAGS);
+    mediaGroup.add(mediaIndicatorRow);
+
+    const mediaControlsRow = new Adw.SwitchRow({
+      title: "Media controls",
+      subtitle: "Show play/pause/next/previous in the context menu",
+    });
+    settings.bind("media-controls", mediaControlsRow, "active", BIND_FLAGS);
+    mediaGroup.add(mediaControlsRow);
+
     // Performance group
     const perfGroup = new Adw.PreferencesGroup({
       title: "Performance",
@@ -326,15 +371,18 @@ export default class MacosDockPreferences extends ExtensionPreferences {
   }
 
   private _trackSignal(
-    source: { connect(signal: string, callback: (...args: unknown[]) => void): number },
+    source: { connect(signal: string, callback: (...args: unknown[]) => void): number; disconnect(id: number): void },
     signal: string,
     callback: (...args: unknown[]) => void,
   ): void {
     const id = source.connect(signal, callback);
-    this._signalIds.push(id);
+    this._signalConnections.push({ source, id });
   }
 
   private _disconnectAll(): void {
-    this._signalIds = [];
+    for (const conn of this._signalConnections) {
+      conn.source.disconnect(conn.id);
+    }
+    this._signalConnections = [];
   }
 }

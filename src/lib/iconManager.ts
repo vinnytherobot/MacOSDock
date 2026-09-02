@@ -4,20 +4,28 @@ import GLib from "gi://GLib";
 import Shell from "gi://Shell";
 import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
+import * as BoxPointer from "resource:///org/gnome/shell/ui/boxpointer.js";
+import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 import { SignalManager } from "./signalManager.js";
 import type { WindowPreviewPopup } from "./windowPreview.js";
 
 export type DockIconClicked = (app: Shell.App) => void;
 export type IconsChanged = () => void;
+export type MediaAction = "play-pause" | "next" | "previous";
 
 type IconActor = InstanceType<typeof St.BoxLayout>;
 
 interface AppData {
   appId: string;
   icon: InstanceType<typeof St.Icon>;
+  iconWrapper: InstanceType<typeof St.Widget>;
   indicatorBox: InstanceType<typeof St.BoxLayout>;
   dots: InstanceType<typeof St.Widget>[];
+  mediaIndicator: InstanceType<typeof St.Widget> | null;
 }
+
+type ContextMenu = InstanceType<typeof PopupMenu.PopupMenu>;
+type MenuManager = InstanceType<typeof PopupMenu.PopupMenuManager>;
 
 /**
  * Manages app icons inside the dock container.
@@ -28,6 +36,9 @@ interface AppData {
  * apps in the dock even when not in the favorites list).
  */
 export class IconManager {
+  private static readonly MEDIA_BADGE_SIZE = 12;
+  private static readonly MEDIA_BADGE_INSET = 3;
+
   private _signals: SignalManager;
   private _container: InstanceType<typeof St.BoxLayout>;
   private _iconSize: number;
@@ -35,17 +46,26 @@ export class IconManager {
   private _indicatorStyle: number; // 0 = dots per window, 1 = horizontal bar
   private _onClicked: DockIconClicked | null = null;
   private _onIconsChanged: IconsChanged | null = null;
+  private _onMediaAction: ((action: MediaAction) => void) | null = null;
+  private _mediaControlsEnabled: boolean = false;
+  private _onContextMenuActorChanged: ((actor: InstanceType<typeof St.Widget> | null) => void) | null = null;
 
   private _icons: Map<string, IconActor> = new Map();
   private _apps: Map<string, Shell.App> = new Map();
   private _favorites: string[] = [];
   private _windowChangeSourceId: number | null = null;
   private _tooltipText: InstanceType<typeof St.Label> | null = null;
-  private _contextMenu: InstanceType<typeof St.BoxLayout> | null = null;
+  private _contextMenu: ContextMenu | null = null;
+  private _menuSignals: SignalManager | null = null;
+  private _menuManager: MenuManager | null = null;
   private _separator: InstanceType<typeof St.Widget> | null = null;
   private _appButton: InstanceType<typeof St.BoxLayout> | null = null;
   private _appButtonIcon: InstanceType<typeof St.Icon> | null = null;
   private _showAppButton: boolean = true;
+  private _showRunningApps: boolean = true;
+  private _workspaceMode: number = 0; // 0=all, 1=current-only
+  private _mediaIndicatorEnabled: boolean = true;
+  private _playingAppId: string | null = null;
   private _windowPreviewsEnabled: boolean = false;
   private _previewPopup: WindowPreviewPopup | null = null;
 
@@ -69,6 +89,18 @@ export class IconManager {
 
   setOnIconsChanged(callback: IconsChanged): void {
     this._onIconsChanged = callback;
+  }
+
+  setOnMediaAction(callback: (action: MediaAction) => void): void {
+    this._onMediaAction = callback;
+  }
+
+  setMediaControlsEnabled(enabled: boolean): void {
+    this._mediaControlsEnabled = enabled;
+  }
+
+  setOnContextMenuActorChanged(callback: (actor: InstanceType<typeof St.Widget> | null) => void): void {
+    this._onContextMenuActorChanged = callback;
   }
 
   setIconSize(size: number): void {
@@ -106,6 +138,30 @@ export class IconManager {
     this._updateAppButton();
   }
 
+  setShowRunningApps(enabled: boolean): void {
+    this._showRunningApps = enabled;
+    this._reload();
+  }
+
+  setWorkspaceMode(mode: number): void {
+    this._workspaceMode = mode;
+    this._reload();
+  }
+
+  reload(): void {
+    this._reload();
+  }
+
+  setMediaIndicatorEnabled(enabled: boolean): void {
+    this._mediaIndicatorEnabled = enabled;
+    this._refreshAllMediaIndicators();
+  }
+
+  setPlayingApp(appId: string | null): void {
+    this._playingAppId = appId;
+    this._refreshAllMediaIndicators();
+  }
+
   setPreviewPopup(popup: WindowPreviewPopup): void {
     this._previewPopup = popup;
   }
@@ -136,6 +192,8 @@ export class IconManager {
     });
     Main.layoutManager.addTopChrome(this._tooltipText);
 
+    this._menuManager = new PopupMenu.PopupMenuManager(this._container);
+
     this._reload();
   }
 
@@ -155,6 +213,7 @@ export class IconManager {
     }
 
     this._closeContextMenu();
+    this._menuManager = null;
 
     this._container.remove_all_children();
     this._icons.clear();
@@ -217,9 +276,9 @@ export class IconManager {
     }
 
     // Get running apps that aren't favorites
-    const runningApps = this._getRunningApps().filter(
-      (app) => !this._favorites.includes(app.get_id()),
-    );
+    const runningApps = this._showRunningApps
+      ? this._getRunningApps().filter((app) => !this._favorites.includes(app.get_id()))
+      : [];
 
     // Add separator if there are both favorites and running apps
     if (this._favorites.length > 0 && runningApps.length > 0) {
@@ -261,14 +320,13 @@ export class IconManager {
     let changed = false;
     const toRemove: string[] = [];
 
-    // Remove icons for apps that are no longer running and aren't favorites.
+    // Remove icons for apps that are no longer running and aren't favorites,
+    // or all non-favorite running apps if show-running-apps is disabled.
     for (const [id, actor] of this._icons.entries()) {
       const isFavorite = this._favorites.includes(id);
-      if (!isFavorite && !runningIds.has(id)) {
+      if (isFavorite) continue;
+      if (!this._showRunningApps || !runningIds.has(id)) {
         toRemove.push(id);
-        // Animate icon disappearing (fade out + scale)
-        // Note: scale_x/scale_y are the correct GJS property names (snake_case),
-        // even though TypeScript types expect camelCase (scaleX/scaleY).
         const easeOut = (params: Record<string, unknown>) =>
           actor.ease(params as Parameters<typeof actor.ease>[0]);
         easeOut({
@@ -291,15 +349,17 @@ export class IconManager {
       this._apps.delete(id);
     }
 
-    // Add icons for newly running, non-favorited apps.
-    for (const id of runningIds) {
-      if (this._icons.has(id)) continue;
-      if (this._favorites.includes(id)) continue;
-      const appSystem = Shell.AppSystem.get_default();
-      const app = appSystem.lookup_app(id);
-      if (!app) continue;
-      this._addIcon(app);
-      changed = true;
+    // Add icons for newly running, non-favorited apps (only if enabled).
+    if (this._showRunningApps) {
+      for (const id of runningIds) {
+        if (this._icons.has(id)) continue;
+        if (this._favorites.includes(id)) continue;
+        const appSystem = Shell.AppSystem.get_default();
+        const app = appSystem.lookup_app(id);
+        if (!app) continue;
+        this._addIcon(app);
+        changed = true;
+      }
     }
 
     // Update separator visibility
@@ -312,6 +372,14 @@ export class IconManager {
   }
 
   private _updateSeparator(): void {
+    if (!this._showRunningApps) {
+      if (this._separator) {
+        this._separator.destroy();
+        this._separator = null;
+      }
+      return;
+    }
+
     // Count non-favorite running apps
     const runningNonFavorites = this._getRunningApps().filter(
       (app) => !this._favorites.includes(app.get_id()),
@@ -350,8 +418,21 @@ export class IconManager {
       gicon: app.get_icon(),
       icon_size: this._iconSize,
       style_class: "macos-dock-icon-gicon",
+      x_align: Clutter.ActorAlign.CENTER,
+      y_align: Clutter.ActorAlign.CENTER,
     });
-    actor.add_child(icon);
+
+    const iconWrapper = new St.Widget({
+      style_class: "macos-dock-icon-wrapper",
+      layout_manager: new Clutter.FixedLayout(),
+      x_align: Clutter.ActorAlign.CENTER,
+      width: this._iconSize,
+      height: this._iconSize,
+    });
+    icon.set_position(0, 0);
+    iconWrapper.add_child(icon);
+
+    actor.add_child(iconWrapper);
 
     // Container for running indicator dots (or a single bar).
     const indicatorBox = new St.BoxLayout({
@@ -362,21 +443,29 @@ export class IconManager {
     actor.add_child(indicatorBox);
 
     // Store references on the actor for retrieval later.
-    const appData: AppData = { appId, icon, indicatorBox, dots: [] };
+    const appData: AppData = {
+      appId,
+      icon,
+      iconWrapper,
+      indicatorBox,
+      dots: [],
+      mediaIndicator: null,
+    };
     (actor as unknown as Record<string, unknown>)._appData = appData;
 
     this._signals.connect(actor, "button-press-event", (_actor, event) => {
       const button = (event as { get_button: () => number }).get_button();
       if (button === 3) {
-        // Right-click: show context menu
         this._showContextMenu(actor, app);
         return Clutter.EVENT_STOP;
       }
-      // Left-click: normal behavior
+      if (button !== 1) {
+        return Clutter.EVENT_PROPAGATE;
+      }
       if (this._onClicked) {
         this._onClicked(app);
       }
-      return Clutter.EVENT_PROPAGATE;
+      return Clutter.EVENT_STOP;
     });
 
     // Tooltip events - use notify::hover since track_hover is enabled
@@ -428,14 +517,62 @@ export class IconManager {
     const data = this._getStored(actor);
     if (data) {
       data.icon.set_icon_size(this._iconSize);
+      data.iconWrapper.set_size(this._iconSize, this._iconSize);
+      if (data.mediaIndicator) {
+        this._positionMediaIndicator(data.mediaIndicator);
+      }
     }
     const padded = this._iconSize + 12;
     actor.set_size(padded, padded + 4);
   }
 
+  private _positionMediaIndicator(indicator: InstanceType<typeof St.Widget>): void {
+    const badgeSize = IconManager.MEDIA_BADGE_SIZE;
+    const inset = IconManager.MEDIA_BADGE_INSET;
+    indicator.set_size(badgeSize, badgeSize);
+    indicator.set_position(this._iconSize - badgeSize + inset, -inset);
+  }
+
   private _refreshAllIndicators(): void {
     for (const [appId, actor] of this._icons.entries()) {
       this._refreshRunningIndicator(actor, appId);
+    }
+  }
+
+  private _refreshAllMediaIndicators(): void {
+    for (const [appId, actor] of this._icons.entries()) {
+      this._refreshMediaIndicator(actor, appId);
+    }
+  }
+
+  private _refreshMediaIndicator(actor: IconActor, appId: string): void {
+    const data = this._getStored(actor);
+    if (!data) return;
+
+    const isPlaying = this._mediaIndicatorEnabled && this._playingAppId === appId;
+
+    if (isPlaying && !data.mediaIndicator) {
+      const badge = new St.Widget({
+        style_class: "macos-dock-media-indicator",
+        layout_manager: new Clutter.BinLayout(),
+        x_align: Clutter.ActorAlign.CENTER,
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      const noteIcon = new St.Icon({
+        icon_name: "folder-music-symbolic",
+        icon_size: 8,
+        style_class: "macos-dock-media-indicator-icon",
+        x_align: Clutter.ActorAlign.CENTER,
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      badge.add_child(noteIcon);
+      this._positionMediaIndicator(badge);
+      data.iconWrapper.add_child(badge);
+      data.mediaIndicator = badge;
+    } else if (!isPlaying && data.mediaIndicator) {
+      data.iconWrapper.remove_child(data.mediaIndicator);
+      data.mediaIndicator.destroy();
+      data.mediaIndicator = null;
     }
   }
 
@@ -509,10 +646,12 @@ export class IconManager {
     const seen = new Set<string>();
     const result: Shell.App[] = [];
     const windows = global.get_window_actors();
+    const activeWorkspace = global.workspace_manager.get_active_workspace();
     for (const wa of windows) {
       const metaWin = wa.get_meta_window();
       if (!metaWin) continue;
       if (!metaWin.showing_on_its_workspace()) continue;
+      if (this._workspaceMode === 1 && metaWin.get_workspace() !== activeWorkspace) continue;
       const app = tracker.get_window_app(metaWin);
       if (!app) continue;
       const id = app.get_id();
@@ -600,65 +739,85 @@ export class IconManager {
   }
 
   private _showContextMenu(actor: IconActor, app: Shell.App): void {
-    // Close existing context menu if any
     this._closeContextMenu();
+    if (!this._menuManager) return;
 
-    // Create a simple context menu using St.BoxLayout
-    this._contextMenu = new St.BoxLayout({
-      style_class: "macos-dock-context-menu",
-      vertical: true,
-      reactive: true,
-      x_align: Clutter.ActorAlign.CENTER,
-      y_align: Clutter.ActorAlign.START,
-    });
+    const menu = new PopupMenu.PopupMenu(actor, 0.5, St.Side.TOP);
+    (menu as unknown as { blockSourceEvents: boolean }).blockSourceEvents = true;
+    menu.box.add_style_class_name("macos-dock-popup-menu");
+    Main.uiGroup.add_child(menu.actor);
+    this._contextMenu = menu;
+    this._menuSignals = new SignalManager();
 
-    const menuItems = [
-      { label: "Nova Janela", action: () => app.open_new_window(-1) },
-      { label: "Fechar", action: () => this._closeApp(app) },
+    const menuItems: { label: string; action: () => void }[] = [
+      { label: "New Window", action: () => app.open_new_window(-1) },
     ];
 
-    for (const item of menuItems) {
-      const menuItem = new St.Button({
-        style_class: "macos-dock-context-menu-item",
-        reactive: true,
-        track_hover: true,
-        x_align: Clutter.ActorAlign.START,
-        y_align: Clutter.ActorAlign.CENTER,
-        label: item.label,
+    if (this._mediaControlsEnabled && this._playingAppId === app.get_id()) {
+      menuItems.push({
+        label: "Play/Pause",
+        action: () => this._onMediaAction?.("play-pause"),
       });
-      menuItem.connect("button-press-event", () => {
-        item.action();
-        this._closeContextMenu();
-        return Clutter.EVENT_STOP;
+      menuItems.push({
+        label: "Next",
+        action: () => this._onMediaAction?.("next"),
       });
-      this._contextMenu.add_child(menuItem);
+      menuItems.push({
+        label: "Previous",
+        action: () => this._onMediaAction?.("previous"),
+      });
     }
 
-    // Position menu above the icon
-    const [x, y] = actor.get_transformed_position();
-    const [width] = actor.get_size();
-    const [, menuWidth] = this._contextMenu.get_preferred_width(-1);
-    const [, menuHeight] = this._contextMenu.get_preferred_height(-1);
+    menuItems.push({ label: "Close", action: () => this._closeApp(app) });
 
-    const menuX = x + (width - menuWidth) / 2;
-    const menuY = y - menuHeight - 10;
+    for (const item of menuItems) {
+      const menuItem = new PopupMenu.PopupMenuItem(item.label);
+      this._menuSignals.connect(menuItem, "activate", () => {
+        item.action();
+        this._closeContextMenu();
+      });
+      menu.addMenuItem(menuItem);
+    }
 
-    this._contextMenu.set_position(menuX, menuY);
-    Main.layoutManager.addTopChrome(this._contextMenu);
+    this._menuSignals.connect(menu, "open-state-changed", (_source, isOpen) => {
+      if (!isOpen) {
+        this._finalizeContextMenu();
+      }
+    });
 
-    // Close menu when clicking outside
-    const clickOutsideId = global.stage.connect("button-press-event", () => {
-      this._closeContextMenu();
-      global.stage.disconnect(clickOutsideId);
-      return Clutter.EVENT_PROPAGATE;
+    this._menuManager.addMenu(menu);
+    this._onContextMenuActorChanged?.(menu.actor);
+
+    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+      if (this._contextMenu !== menu) {
+        return GLib.SOURCE_REMOVE;
+      }
+      menu.open(BoxPointer.PopupAnimation.FULL);
+      this._menuManager?.ignoreRelease?.();
+      return GLib.SOURCE_REMOVE;
     });
   }
 
   private _closeContextMenu(): void {
+    if (!this._contextMenu) return;
+    if (this._contextMenu.isOpen) {
+      this._contextMenu.close();
+    } else {
+      this._finalizeContextMenu();
+    }
+  }
+
+  private _finalizeContextMenu(): void {
+    this._onContextMenuActorChanged?.(null);
+    if (this._menuSignals) {
+      this._menuSignals.disconnectAll();
+      this._menuSignals = null;
+    }
     if (this._contextMenu) {
-      Main.layoutManager.removeChrome(this._contextMenu);
-      this._contextMenu.destroy();
+      const menu = this._contextMenu;
       this._contextMenu = null;
+      this._menuManager?.removeMenu(menu);
+      menu.destroy();
     }
   }
 
@@ -723,7 +882,7 @@ export class IconManager {
     });
     this._appButton.add_child(this._appButtonIcon);
 
-    this._appButton.connect("button-press-event", () => {
+    this._signals.connect(this._appButton, "button-press-event", () => {
       if (Main.overview.visible) {
         Main.overview.hide();
       } else {
