@@ -13,11 +13,6 @@
   background: transparent;
 }
 
-.macos-dock-icon-keyboard-focus {
-  background-color: rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-}
-
 .macos-dock-icon-gicon {
   icon-shadow: 0 2px 3px rgba(0, 0, 0, 0.4);
 }
@@ -49,29 +44,23 @@
   padding: 6px 12px;
 }
 
-/* Context Menu */
-.macos-dock-context-menu {
-  background-color: rgba(40, 40, 40, 0.95);
+/* Popup Menu */
+.macos-dock-popup-menu {
+  background-color: rgb(40, 40, 40);
   border-radius: 8px;
-  padding: 4px 0;
-  min-width: 120px;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
-.macos-dock-context-menu-item {
+.macos-dock-popup-menu .popup-menu-item {
+  spacing: 8px;
   padding: 8px 16px;
   color: white;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  margin: 0 4px;
 }
 
-.macos-dock-context-menu-item:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-.macos-dock-context-menu-item:active {
-  background-color: rgba(255, 255, 255, 0.2);
+.macos-dock-popup-menu .popup-menu-item:active,
+.macos-dock-popup-menu .popup-menu-item:selected {
+  background-color: rgba(255, 255, 255, 0.12);
 }
 
 /* Separator */
@@ -143,4 +132,22 @@
   color: white;
   font-size: 11px;
   max-width: 180px;
+}
+
+/* Media Indicator */
+.macos-dock-icon-wrapper {
+  /* Size is set dynamically to match icon size */
+}
+
+.macos-dock-media-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 6px;
+  background-color: rgba(20, 20, 20, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.macos-dock-media-indicator-icon {
+  color: #8ec8ff;
 }

@@ -6,6 +6,7 @@ schemas/*.compiled
 # Internal docs
 ROADMAP.md
 FEATURES.md
+FEATURE_PLAN.md
 
 # AI
 .mimocode

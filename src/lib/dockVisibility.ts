@@ -22,6 +22,7 @@ export class DockVisibility {
   private _pollId: number | null = null;
   private _edge: number; // 0=bottom, 1=left, 2=right, 3=top
   private _previewPopup: WindowPreviewPopup | null = null;
+  private _contextMenuActor: InstanceType<typeof St.Widget> | null = null;
 
   constructor(
     container: Container,
@@ -42,6 +43,10 @@ export class DockVisibility {
 
   setPreviewPopup(popup: WindowPreviewPopup): void {
     this._previewPopup = popup;
+  }
+
+  setContextMenuActor(actor: InstanceType<typeof St.Widget> | null): void {
+    this._contextMenuActor = actor;
   }
 
   setEdge(edge: number): void {
@@ -71,36 +76,15 @@ export class DockVisibility {
       this._pollId = null;
     }
 
-    // Use the global stage motion-event to detect pointer near bottom.
-    // This is more reliable than GLib.timeout_add in some GJS versions.
     this._signals.connect(global.stage, "motion-event", (_actor: unknown, event: unknown) => {
-      try {
-        const evt = event as { get_coords?: () => [boolean, number, number] };
-        let x = 0;
-        let y = 0;
-        if (evt && typeof evt.get_coords === "function") {
-          const [ok, px, py] = evt.get_coords();
-          if (ok) {
-            x = px;
-            y = py;
-          }
-        }
-        this._check(x, y);
-      } catch (e) {
-        console.error("[macos-dock] motion-event error:", e);
-      }
+      const [px, py] = (event as Clutter.Event).get_coords();
+      this._check(px, py);
       return Clutter.EVENT_PROPAGATE;
     });
-    this._pollId = GLib.timeout_add(150, 100, () => {
-      try {
-        const pointer = global.get_pointer();
-        const x = pointer[0];
-        const y = pointer[1];
-        this._check(x, y);
-      } catch (e) {
-        console.error("[macos-dock] poll error:", e);
-      }
-      return true; // SOURCE_CONTINUE
+    this._pollId = GLib.timeout_add(GLib.PRIORITY_LOW, 100, () => {
+      const [x, y] = global.get_pointer();
+      this._check(x, y);
+      return true;
     });
   }
 
@@ -129,7 +113,7 @@ export class DockVisibility {
     if (!this._monitor) return;
 
     // Don't hide if pointer is inside the preview popup
-    if (this._previewPopup && this._previewPopup.isVisible()) {
+    if (this._previewPopup?.isVisible()) {
       const bounds = this._previewPopup.getBounds();
       if (bounds) {
         const insidePopup =
@@ -138,6 +122,15 @@ export class DockVisibility {
           pointerY >= bounds.y &&
           pointerY <= bounds.y + bounds.height;
         if (insidePopup) return;
+      }
+    }
+
+    // Don't hide if pointer is inside the context menu
+    if (this._contextMenuActor?.mapped) {
+      const [mx, my] = this._contextMenuActor.get_transformed_position();
+      const [mw, mh] = this._contextMenuActor.get_size();
+      if (pointerX >= mx && pointerX <= mx + mw && pointerY >= my && pointerY <= my + mh) {
+        return;
       }
     }
 

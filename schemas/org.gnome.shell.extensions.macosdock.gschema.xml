@@ -162,5 +162,25 @@
       <summary>Preview thumbnail width</summary>
       <description>Width of each preview thumbnail in pixels (100-400)</description>
     </key>
+    <key name="show-running-apps" type="b">
+      <default>true</default>
+      <summary>Show running applications</summary>
+      <description>Show non-favorite running applications in the dock</description>
+    </key>
+    <key name="dock-workspace-mode" type="i">
+      <default>0</default>
+      <summary>Dock workspace mode</summary>
+      <description>Which workspaces show running apps (0=all, 1=current only)</description>
+    </key>
+    <key name="media-controls" type="b">
+      <default>false</default>
+      <summary>Enable media controls</summary>
+      <description>Show play/pause controls in the dock context menu when media is playing</description>
+    </key>
+    <key name="media-indicator" type="b">
+      <default>true</default>
+      <summary>Media indicator</summary>
+      <description>Show a music note indicator on the icon of the currently playing media app</description>
+    </key>
   </schema>
 </schemalist>

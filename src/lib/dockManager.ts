@@ -6,9 +6,10 @@ import Shell from "gi://Shell";
 import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { DockVisibility } from "./dockVisibility.js";
-import { IconManager } from "./iconManager.js";
+import { IconManager, type MediaAction } from "./iconManager.js";
 import { Intellihide } from "./intellihide.js";
 import { Magnification } from "./magnification.js";
+import { MediaManager } from "./mediaManager.js";
 import { SignalManager } from "./signalManager.js";
 import { WindowPreviewPopup } from "./windowPreview.js";
 
@@ -29,6 +30,7 @@ export class DockManager {
   private _dockPosition: number = POSITIONS.BOTTOM;
   private _blurEffect: Shell.BlurEffect | null = null;
   private _previewPopup: WindowPreviewPopup | null = null;
+  private _mediaManager: MediaManager | null = null;
 
   private static readonly MARGIN_BOTTOM = 12;
   private static readonly MIN_DOCK_WIDTH = 300;
@@ -71,6 +73,16 @@ export class DockManager {
     );
     this._iconManager.setOnClicked((app) => this._onAppClicked(app));
     this._iconManager.setOnIconsChanged(() => this._updatePosition());
+    this._iconManager.setOnMediaAction((action) => this._onMediaAction(action));
+    this._iconManager.setOnContextMenuActorChanged((actor) => {
+      if (this._visibility) {
+        this._visibility.setContextMenuActor(actor);
+      }
+    });
+    this._iconManager.setShowRunningApps(settings.get_boolean("show-running-apps"));
+    this._iconManager.setWorkspaceMode(settings.get_int("dock-workspace-mode"));
+    this._iconManager.setMediaIndicatorEnabled(settings.get_boolean("media-indicator"));
+    this._iconManager.setMediaControlsEnabled(settings.get_boolean("media-controls"));
 
     // Window preview popup
     this._previewPopup = new WindowPreviewPopup();
@@ -89,6 +101,15 @@ export class DockManager {
       settings.get_int("magnification-framerate"),
     );
     this._magnification.start();
+
+    // Media manager: MPRIS integration for music controls.
+    this._mediaManager = new MediaManager();
+    this._mediaManager.setOnStateChanged((app) => {
+      if (this._iconManager) {
+        this._iconManager.setPlayingApp(app?.get_id() ?? null);
+      }
+    });
+    this._mediaManager.start();
 
     this._applyDockStyle();
     this._applyDockPosition();
@@ -188,6 +209,31 @@ export class DockManager {
         this._previewPopup.setPreviewWidth(settings.get_int("preview-scale"));
       }
     });
+    this._signals.connect(settings, "changed::show-running-apps", () => {
+      if (this._iconManager) {
+        this._iconManager.setShowRunningApps(settings.get_boolean("show-running-apps"));
+      }
+    });
+    this._signals.connect(settings, "changed::dock-workspace-mode", () => {
+      if (this._iconManager) {
+        this._iconManager.setWorkspaceMode(settings.get_int("dock-workspace-mode"));
+      }
+    });
+    this._signals.connect(global.workspace_manager, "workspace-switched", () => {
+      if (this._iconManager && this._settings?.get_int("dock-workspace-mode") === 1) {
+        this._iconManager.reload();
+      }
+    });
+    this._signals.connect(settings, "changed::media-indicator", () => {
+      if (this._iconManager) {
+        this._iconManager.setMediaIndicatorEnabled(settings.get_boolean("media-indicator"));
+      }
+    });
+    this._signals.connect(settings, "changed::media-controls", () => {
+      if (this._iconManager) {
+        this._iconManager.setMediaControlsEnabled(settings.get_boolean("media-controls"));
+      }
+    });
 
     if (settings.get_boolean("auto-hide")) {
       this._startAutoHide();
@@ -218,6 +264,11 @@ export class DockManager {
     if (this._previewPopup) {
       this._previewPopup.stop();
       this._previewPopup = null;
+    }
+
+    if (this._mediaManager) {
+      this._mediaManager.stop();
+      this._mediaManager = null;
     }
 
     this._removeKeybindings();
@@ -297,6 +348,21 @@ export class DockManager {
       }
     } else {
       app.open_new_window(-1);
+    }
+  }
+
+  private _onMediaAction(action: MediaAction): void {
+    if (!this._mediaManager) return;
+    switch (action) {
+      case "play-pause":
+        this._mediaManager.togglePlayPause();
+        break;
+      case "next":
+        this._mediaManager.next();
+        break;
+      case "previous":
+        this._mediaManager.previous();
+        break;
     }
   }
 
