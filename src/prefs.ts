@@ -371,7 +371,10 @@ export default class MacosDockPreferences extends ExtensionPreferences {
   }
 
   private _trackSignal(
-    source: { connect(signal: string, callback: (...args: unknown[]) => void): number; disconnect(id: number): void },
+    source: {
+      connect(signal: string, callback: (...args: unknown[]) => void): number;
+      disconnect(id: number): void;
+    },
     signal: string,
     callback: (...args: unknown[]) => void,
   ): void {

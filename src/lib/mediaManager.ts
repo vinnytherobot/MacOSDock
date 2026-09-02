@@ -76,38 +76,17 @@ export class MediaManager {
 
   togglePlayPause(): void {
     if (!this._activePlayer) return;
-    this._activePlayer.proxy.call(
-      "PlayPause",
-      null,
-      Gio.DBusCallFlags.NONE,
-      -1,
-      null,
-      null,
-    );
+    this._activePlayer.proxy.call("PlayPause", null, Gio.DBusCallFlags.NONE, -1, null, null);
   }
 
   next(): void {
     if (!this._activePlayer) return;
-    this._activePlayer.proxy.call(
-      "Next",
-      null,
-      Gio.DBusCallFlags.NONE,
-      -1,
-      null,
-      null,
-    );
+    this._activePlayer.proxy.call("Next", null, Gio.DBusCallFlags.NONE, -1, null, null);
   }
 
   previous(): void {
     if (!this._activePlayer) return;
-    this._activePlayer.proxy.call(
-      "Previous",
-      null,
-      Gio.DBusCallFlags.NONE,
-      -1,
-      null,
-      null,
-    );
+    this._activePlayer.proxy.call("Previous", null, Gio.DBusCallFlags.NONE, -1, null, null);
   }
 
   private _watchNames(): void {
@@ -121,11 +100,7 @@ export class MediaManager {
       null,
       Gio.DBusSignalFlags.NONE,
       (_conn, _sender, _path, _iface, _signal, params) => {
-        const [name, oldOwner, newOwner] = params.deepUnpack() as [
-          string,
-          string,
-          string,
-        ];
+        const [name, oldOwner, newOwner] = params.deepUnpack() as [string, string, string];
         if (name.startsWith("org.mpris.MediaPlayer2")) {
           if (oldOwner && !newOwner) {
             this._removePlayer(oldOwner);
@@ -140,10 +115,11 @@ export class MediaManager {
 
   private async _discoverPlayers(): Promise<void> {
     if (!this._bus) return;
+    const bus = this._bus;
 
     try {
       const result = await new Promise<GLib.Variant>((resolve, reject) => {
-        this._bus!.call(
+        bus.call(
           "org.freedesktop.DBus",
           "/org/freedesktop/DBus",
           "org.freedesktop.DBus",
@@ -155,7 +131,7 @@ export class MediaManager {
           null,
           (_conn, res) => {
             try {
-              resolve(this._bus!.call_finish(res));
+              resolve(bus.call_finish(res));
             } catch (e) {
               reject(e);
             }

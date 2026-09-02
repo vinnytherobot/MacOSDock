@@ -3,8 +3,8 @@ import Gio from "gi://Gio";
 import GLib from "gi://GLib";
 import Shell from "gi://Shell";
 import St from "gi://St";
-import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import * as BoxPointer from "resource:///org/gnome/shell/ui/boxpointer.js";
+import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 import { SignalManager } from "./signalManager.js";
 import type { WindowPreviewPopup } from "./windowPreview.js";
@@ -48,7 +48,9 @@ export class IconManager {
   private _onIconsChanged: IconsChanged | null = null;
   private _onMediaAction: ((action: MediaAction) => void) | null = null;
   private _mediaControlsEnabled: boolean = false;
-  private _onContextMenuActorChanged: ((actor: InstanceType<typeof St.Widget> | null) => void) | null = null;
+  private _onContextMenuActorChanged:
+    | ((actor: InstanceType<typeof St.Widget> | null) => void)
+    | null = null;
 
   private _icons: Map<string, IconActor> = new Map();
   private _apps: Map<string, Shell.App> = new Map();
@@ -99,7 +101,9 @@ export class IconManager {
     this._mediaControlsEnabled = enabled;
   }
 
-  setOnContextMenuActorChanged(callback: (actor: InstanceType<typeof St.Widget> | null) => void): void {
+  setOnContextMenuActorChanged(
+    callback: (actor: InstanceType<typeof St.Widget> | null) => void,
+  ): void {
     this._onContextMenuActorChanged = callback;
   }
 
@@ -480,7 +484,7 @@ export class IconManager {
       } else {
         this._hideTooltip();
         // Schedule hide of preview popup (delay allows mouse to move to popup)
-        if (this._previewPopup && this._previewPopup.isVisible()) {
+        if (this._previewPopup?.isVisible()) {
           this._previewPopup.scheduleHide();
         }
       }

@@ -113,7 +113,7 @@ export class DockVisibility {
     if (!this._monitor) return;
 
     // Don't hide if pointer is inside the preview popup
-    if (this._previewPopup && this._previewPopup.isVisible()) {
+    if (this._previewPopup?.isVisible()) {
       const bounds = this._previewPopup.getBounds();
       if (bounds) {
         const insidePopup =
@@ -126,7 +126,7 @@ export class DockVisibility {
     }
 
     // Don't hide if pointer is inside the context menu
-    if (this._contextMenuActor && this._contextMenuActor.mapped) {
+    if (this._contextMenuActor?.mapped) {
       const [mx, my] = this._contextMenuActor.get_transformed_position();
       const [mw, mh] = this._contextMenuActor.get_size();
       if (pointerX >= mx && pointerX <= mx + mw && pointerY >= my && pointerY <= my + mh) {
