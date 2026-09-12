@@ -306,6 +306,7 @@ export class DockManager {
       this._settings.get_int("animation-duration"),
       this._settings.get_int("show-threshold"),
       this._dockPosition,
+      this._settings.get_double("magnification-scale"),
     );
     if (this._previewPopup) {
       this._visibility.setPreviewPopup(this._previewPopup);
@@ -416,6 +417,13 @@ export class DockManager {
 
   private _updatePosition(): void {
     if (!this._container) return;
+
+    // Skip position recalculation while the dock is shown or a visibility
+    // animation is running. The show/hide animation owns the container's
+    // translation and a layout update here would conflict with it.
+    if (this._visibility && (this._visibility.isShown() || this._visibility.isAnimating())) {
+      return;
+    }
 
     const monitor = Main.layoutManager.primaryMonitor;
     if (!monitor) return;
