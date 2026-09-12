@@ -202,12 +202,12 @@ export class IconManager {
   }
 
   stop(): void {
-    this._signals.disconnectAll();
-
     if (this._windowChangeSourceId !== null) {
       GLib.source_remove(this._windowChangeSourceId);
       this._windowChangeSourceId = null;
     }
+
+    this._signals.disconnectAll();
 
     this._hideTooltip();
     if (this._tooltipText) {
