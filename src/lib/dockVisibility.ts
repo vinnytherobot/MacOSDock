@@ -38,6 +38,7 @@ export class DockVisibility {
 
   private _pointerX = 0;
   private _pointerY = 0;
+  private _dragActive = false;
 
   // Latches true when the pointer first enters the edge zone to show the dock.
   // While true the dock stays visible as long as the pointer is anywhere in the
@@ -81,6 +82,21 @@ export class DockVisibility {
     this._contextMenuActor = actor;
   }
 
+  /**
+   * Hold the dock in its shown state while a drag-reorder is in progress so
+   * the auto-hide poll cannot slide the dock away underneath the pointer.
+   */
+  setDragActive(active: boolean): void {
+    if (active === this._dragActive) return;
+    this._dragActive = active;
+    if (active) {
+      this._interactionActive = true;
+      this._show();
+    } else {
+      this._check();
+    }
+  }
+
   setEdge(edge: number): void {
     this._edge = edge;
   }
@@ -114,6 +130,7 @@ export class DockVisibility {
     this._container.opacity = 0;
     this._shown = false;
     this._interactionActive = false;
+    this._dragActive = false;
 
     this._container.translation_x = 0;
     this._container.translation_y = 0;
@@ -161,6 +178,7 @@ export class DockVisibility {
     }
     this._animation = null;
     this._animating = false;
+    this._dragActive = false;
 
     this._container.translation_x = 0;
     this._container.translation_y = 0;
@@ -170,6 +188,10 @@ export class DockVisibility {
 
   private _check(): void {
     if (!this._monitor) return;
+
+    // The dock stays up for the whole duration of a drag-reorder; hiding it
+    // mid-drag would pull the drop target out from under the pointer.
+    if (this._dragActive) return;
 
     if (this._previewPopup?.isVisible()) {
       const bounds = this._previewPopup.getBounds();
@@ -368,6 +390,7 @@ export class DockVisibility {
 
   private _onIntellihideChanged(overlap: OverlapStatus): void {
     if (!overlap) return;
+    if (this._dragActive) return;
 
     if (this._shown && !this._isPointerInInteractionRegion()) {
       this._hide();
