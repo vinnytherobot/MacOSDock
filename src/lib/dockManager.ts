@@ -83,6 +83,8 @@ export class DockManager {
     this._iconManager.setWorkspaceMode(settings.get_int("dock-workspace-mode"));
     this._iconManager.setMediaIndicatorEnabled(settings.get_boolean("media-indicator"));
     this._iconManager.setMediaControlsEnabled(settings.get_boolean("media-controls"));
+    this._iconManager.setDragReorderEnabled(settings.get_boolean("drag-reorder"));
+    this._iconManager.setOnDragStateChanged((dragging) => this._onDragStateChanged(dragging));
 
     // Window preview popup
     this._previewPopup = new WindowPreviewPopup();
@@ -229,6 +231,11 @@ export class DockManager {
         this._iconManager.setMediaIndicatorEnabled(settings.get_boolean("media-indicator"));
       }
     });
+    this._signals.connect(settings, "changed::drag-reorder", () => {
+      if (this._iconManager) {
+        this._iconManager.setDragReorderEnabled(settings.get_boolean("drag-reorder"));
+      }
+    });
     this._signals.connect(settings, "changed::media-controls", () => {
       if (this._iconManager) {
         this._iconManager.setMediaControlsEnabled(settings.get_boolean("media-controls"));
@@ -330,6 +337,17 @@ export class DockManager {
       this._container.opacity = 255;
       this._updatePosition();
     }
+  }
+
+  private _onDragStateChanged(dragging: boolean): void {
+    this._previewPopup?.cancelScheduledHide();
+    this._previewPopup?.hide();
+    if (dragging) {
+      this._magnification?.pause();
+    } else {
+      this._magnification?.resume();
+    }
+    this._visibility?.setDragActive(dragging);
   }
 
   private _onAppClicked(app: Shell.App): void {

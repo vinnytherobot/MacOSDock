@@ -85,6 +85,7 @@ gnome-extensions prefs macos-dock@vinnytherobot.github.io
 | Enable blur          | Frosted glass effect behind dock        | Disabled|
 | Keyboard navigation  | Enable keyboard shortcuts               | Enabled |
 | Show applications    | Show apps button in dock                | Enabled |
+| Drag to reorder      | Drag pinned icons to change their order | Enabled |
 | Window previews      | Show live thumbnails on hover           | Enabled |
 | Preview width        | Width of preview thumbnails (100-400px) | 200     |
 

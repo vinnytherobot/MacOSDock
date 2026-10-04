@@ -18,6 +18,7 @@ export class Magnification {
   private _currentScales: number[] = [];
   private _pivotX = 0.5;
   private _pivotY = 1.0;
+  private _paused = false;
 
   constructor(
     container: InstanceType<typeof St.BoxLayout>,
@@ -57,6 +58,24 @@ export class Magnification {
     this._pivotY = y;
   }
 
+  /**
+   * Freeze magnification and snap all icons back to scale 1.0. Used while a
+   * drag-reorder is in progress so icon geometry stays stable for drop-index
+   * math. The poll keeps running but returns early while paused.
+   */
+  pause(): void {
+    if (this._paused) return;
+    this._paused = true;
+    this._snapAllToMin();
+  }
+
+  resume(): void {
+    if (!this._paused) return;
+    this._paused = false;
+    // Icons may have been reordered while paused; drop stale per-index scales.
+    this._currentScales = [];
+  }
+
   start(): void {
     this._signals.connect(this._container, "leave-event", () => {
       this._resetAll();
@@ -67,6 +86,7 @@ export class Magnification {
   stop(): void {
     this._signals.disconnectAll();
     this._stopPoll();
+    this._paused = false;
     this._resetAll();
   }
 
@@ -94,6 +114,7 @@ export class Magnification {
 
   private _update(): void {
     if (!this._enabled) return;
+    if (this._paused) return;
     if (!this._container.visible) return;
 
     const [px, py] = global.get_pointer();
@@ -167,6 +188,7 @@ export class Magnification {
   }
 
   private _resetAll(): void {
+    if (this._paused) return;
     const children = this._container.get_children() as IconActor[];
     for (let i = 0; i < children.length; i++) {
       const prev = this._currentScales[i] ?? MIN_SCALE;
@@ -176,5 +198,18 @@ export class Magnification {
       children[i].scale_x = next;
       children[i].scale_y = next;
     }
+  }
+
+  /**
+   * Immediately set every icon back to scale 1.0 (no interpolation) and
+   * forget the cached per-index scales.
+   */
+  private _snapAllToMin(): void {
+    const children = this._container.get_children() as IconActor[];
+    for (const child of children) {
+      child.scale_x = MIN_SCALE;
+      child.scale_y = MIN_SCALE;
+    }
+    this._currentScales = [];
   }
 }

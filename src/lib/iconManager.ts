@@ -4,6 +4,7 @@ import GLib from "gi://GLib";
 import Shell from "gi://Shell";
 import St from "gi://St";
 import * as BoxPointer from "resource:///org/gnome/shell/ui/boxpointer.js";
+import * as DND from "resource:///org/gnome/shell/ui/dnd.js";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 import { SignalManager } from "./signalManager.js";
@@ -12,8 +13,10 @@ import type { WindowPreviewPopup } from "./windowPreview.js";
 export type DockIconClicked = (app: Shell.App) => void;
 export type IconsChanged = () => void;
 export type MediaAction = "play-pause" | "next" | "previous";
+export type DragStateChanged = (dragging: boolean) => void;
 
 type IconActor = InstanceType<typeof St.BoxLayout>;
+type Draggable = ReturnType<typeof DND.makeDraggable>;
 
 interface AppData {
   appId: string;
@@ -22,10 +25,44 @@ interface AppData {
   indicatorBox: InstanceType<typeof St.BoxLayout>;
   dots: InstanceType<typeof St.Widget>[];
   mediaIndicator: InstanceType<typeof St.Widget> | null;
+  draggable: Draggable | null;
+  dragSignalIds: number[];
 }
 
 type ContextMenu = InstanceType<typeof PopupMenu.PopupMenu>;
 type MenuManager = InstanceType<typeof PopupMenu.PopupMenuManager>;
+
+/** Delegate exposed on a dragged icon so the drop target knows the source. */
+interface DragSource {
+  appId: string;
+  isFavorite: boolean;
+}
+
+/** Container-local rectangle of the slot an icon was lifted out of. */
+interface DragSlot {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Drop-target methods invoked by the DND framework on the dock container. */
+interface DropTarget {
+  handleDragOver(
+    source: DragSource | null,
+    dragActor: Clutter.Actor,
+    x: number,
+    y: number,
+    time: number,
+  ): number;
+  acceptDrop(
+    source: DragSource | null,
+    dragActor: Clutter.Actor,
+    x: number,
+    y: number,
+    time: number,
+  ): boolean;
+}
 
 /**
  * Manages app icons inside the dock container.
@@ -70,6 +107,22 @@ export class IconManager {
   private _playingAppId: string | null = null;
   private _windowPreviewsEnabled: boolean = false;
   private _previewPopup: WindowPreviewPopup | null = null;
+  private _onDragStateChanged: DragStateChanged | null = null;
+  private _dragReorderEnabled: boolean = true;
+  private _dragging: boolean = false;
+  private _dragSlot: DragSlot | null = null;
+  private _pressedAppId: string | null = null;
+  private _dropIndicator: InstanceType<typeof St.Widget> | null = null;
+  private _dropTarget: DropTarget | null = null;
+  private _favoriteSettings: Gio.Settings | null = null;
+  private _pendingReload: boolean = false;
+  private _pendingReloadSourceId: number | null = null;
+
+  /** Gap between icons, mirrors the `spacing` declared in _applyDockStyle. */
+  private static readonly ICON_SPACING = 6;
+  private static readonly DROP_INDICATOR_THICKNESS = 3;
+  private static readonly DROP_INDICATOR_LENGTH = 32;
+  private static readonly DROP_ZONE_PADDING = 8;
 
   constructor(
     container: InstanceType<typeof St.BoxLayout>,
@@ -105,6 +158,18 @@ export class IconManager {
     callback: (actor: InstanceType<typeof St.Widget> | null) => void,
   ): void {
     this._onContextMenuActorChanged = callback;
+  }
+
+  setOnDragStateChanged(callback: DragStateChanged): void {
+    this._onDragStateChanged = callback;
+  }
+
+  setDragReorderEnabled(enabled: boolean): void {
+    if (this._dragReorderEnabled === enabled) return;
+    this._dragReorderEnabled = enabled;
+    // If a drag is in flight the drop target now refuses it (NO_DROP), so the
+    // reload is simply deferred until the drag settles.
+    this._reload();
   }
 
   setIconSize(size: number): void {
@@ -198,6 +263,22 @@ export class IconManager {
 
     this._menuManager = new PopupMenu.PopupMenuManager(this._container);
 
+    // Favorites are the single source of truth for pinned-icon order.
+    this._favoriteSettings = new Gio.Settings({ schema: "org.gnome.shell" });
+    this._signals.connect(this._favoriteSettings, "changed::favorite-apps", () =>
+      this._onFavoritesChangedExternally(),
+    );
+
+    // The dock container is the drop target; the picked actor's ancestors are
+    // walked by the DND framework until one exposes these methods.
+    this._dropTarget = {
+      handleDragOver: (source, dragActor, x, y, time) =>
+        this._handleDragOver(source, dragActor, x, y, time),
+      acceptDrop: (source, dragActor, x, y, time) =>
+        this._acceptDrop(source, dragActor, x, y, time),
+    };
+    (this._container as unknown as Record<string, unknown>)._delegate = this._dropTarget;
+
     this._reload();
   }
 
@@ -219,10 +300,31 @@ export class IconManager {
     this._closeContextMenu();
     this._menuManager = null;
 
-    this._container.remove_all_children();
+    this._teardownDraggables();
+    this._removeDropIndicator();
+    this._dropTarget = null;
+    (this._container as unknown as Record<string, unknown>)._delegate = null;
+    this._favoriteSettings = null;
+    this._dragging = false;
+    this._dragSlot = null;
+    this._pressedAppId = null;
+    this._pendingReload = false;
+    this._removePendingReloadSource();
+
+    // Destroy instead of merely detaching. The icon being dragged lives in
+    // the UI group, not in the container, so it has to be destroyed here too:
+    // that is what makes the DND framework release its modal grab, which it
+    // otherwise holds until the actor is garbage collected.
+    for (const actor of this._icons.values()) {
+      if (actor.get_parent()) actor.destroy();
+    }
+    for (const child of this._container.get_children()) child.destroy();
     this._icons.clear();
     this._apps.clear();
     this._favorites = [];
+    this._separator = null;
+    this._appButton = null;
+    this._appButtonIcon = null;
   }
 
   /**
@@ -262,6 +364,16 @@ export class IconManager {
   }
 
   private _reload(): void {
+    if (this._dragging) {
+      // Rebuilding the container mid-drag would destroy the drag actor; the
+      // dock is stable enough to survive until the drag settles.
+      this._pendingReload = true;
+      return;
+    }
+    this._pendingReload = false;
+    this._removePendingReloadSource();
+    this._teardownDraggables();
+    this._removeDropIndicator();
     this._container.remove_all_children();
     this._icons.clear();
     this._apps.clear();
@@ -454,6 +566,8 @@ export class IconManager {
       indicatorBox,
       dots: [],
       mediaIndicator: null,
+      draggable: null,
+      dragSignalIds: [],
     };
     (actor as unknown as Record<string, unknown>)._appData = appData;
 
@@ -466,14 +580,37 @@ export class IconManager {
       if (button !== 1) {
         return Clutter.EVENT_PROPAGATE;
       }
+      // Arm the click only. Activation happens on release so a press that
+      // turns into a drag-reorder never launches the app. Propagate so the
+      // DND framework's own press handler still runs.
+      this._pressedAppId = appId;
+      return Clutter.EVENT_PROPAGATE;
+    });
+
+    this._signals.connect(actor, "button-release-event", (_actor, event) => {
+      const button = (event as { get_button: () => number }).get_button();
+      if (button !== 1) {
+        return Clutter.EVENT_PROPAGATE;
+      }
+      const pressed = this._pressedAppId;
+      this._pressedAppId = null;
+      if (this._dragging) return Clutter.EVENT_PROPAGATE;
+      if (!pressed || pressed !== appId) return Clutter.EVENT_PROPAGATE;
+      if (!this._isPointerOver(actor)) return Clutter.EVENT_PROPAGATE;
       if (this._onClicked) {
         this._onClicked(app);
       }
-      return Clutter.EVENT_STOP;
+      return Clutter.EVENT_PROPAGATE;
     });
 
     // Tooltip events - use notify::hover since track_hover is enabled
     this._signals.connect(actor, "notify::hover", () => {
+      if (this._dragging) {
+        // Keep tooltips and previews out of the way while reordering.
+        this._hideTooltip();
+        if (this._previewPopup?.isVisible()) this._previewPopup.hide();
+        return Clutter.EVENT_PROPAGATE;
+      }
       if (actor.hover) {
         this._showTooltip(actor, app.get_name());
         // Show window preview popup
@@ -494,6 +631,10 @@ export class IconManager {
     this._container.add_child(actor);
     this._icons.set(appId, actor);
     this._apps.set(appId, app);
+
+    if (this._dragReorderEnabled && this._favorites.includes(appId)) {
+      this._makeDraggable(actor, appId);
+    }
 
     // Animate icon appearing (fade in + scale)
     // Note: scale_x/scale_y are the correct GJS property names (snake_case),
@@ -667,12 +808,382 @@ export class IconManager {
   }
 
   private _readFavorites(): string[] {
-    try {
-      const settings = new Gio.Settings({ schema: "org.gnome.shell" });
-      return settings.get_strv("favorite-apps");
-    } catch {
-      return [];
+    const settings = this._favoriteSettings ?? new Gio.Settings({ schema: "org.gnome.shell" });
+    return settings.get_strv("favorite-apps");
+  }
+
+  /**
+   * Pinned icon actors currently in the container, in display order. The icon
+   * being dragged is excluded automatically because the DND framework
+   * reparents it to the UI group while a drag is in flight.
+   */
+  private _favoriteActors(): IconActor[] {
+    const result: IconActor[] = [];
+    for (const child of this._container.get_children()) {
+      const data = this._getStored(child as IconActor);
+      if (data && this._favorites.includes(data.appId)) {
+        result.push(child as IconActor);
+      }
     }
+    return result;
+  }
+
+  private _makeDraggable(actor: IconActor, appId: string): void {
+    const data = this._getStored(actor);
+    if (!data) return;
+
+    (actor as unknown as Record<string, unknown>)._delegate = {
+      appId,
+      isFavorite: true,
+    } satisfies DragSource;
+
+    const draggable = DND.makeDraggable(actor, { dragActorOpacity: 200 });
+    const signalIds = [
+      draggable.connect("drag-begin", () => this._onDragBegin(appId)),
+      draggable.connect("drag-cancelled", () => this._removeDropIndicator()),
+      draggable.connect("drag-end", (_self, _time: number, success: boolean) =>
+        this._onDragEnd(appId, success),
+      ),
+    ];
+
+    data.draggable = draggable;
+    data.dragSignalIds = signalIds;
+  }
+
+  private _teardownDraggables(): void {
+    for (const actor of this._icons.values()) {
+      const data = this._getStored(actor);
+      if (data?.draggable) {
+        for (const id of data.dragSignalIds) data.draggable.disconnect(id);
+        data.draggable = null;
+        data.dragSignalIds = [];
+      }
+      const record = actor as unknown as Record<string, unknown>;
+      if (record._delegate) record._delegate = null;
+    }
+  }
+
+  private _onDragBegin(appId: string): void {
+    this._dragging = true;
+    this._dragSlot = this._captureSlot(appId);
+    this._pressedAppId = null;
+    this._hideTooltip();
+    this._previewPopup?.cancelScheduledHide();
+    this._previewPopup?.hide();
+    this._onDragStateChanged?.(true);
+  }
+
+  /**
+   * Read the container-local rectangle of a pinned icon. Called from
+   * `drag-begin`, which the DND framework emits before it lifts the actor
+   * out of the container, so the slot is still measurable.
+   */
+  private _captureSlot(appId: string): DragSlot | null {
+    const actor = this._icons.get(appId);
+    if (!actor || actor.get_parent() !== this._container) return null;
+    const [x, y] = actor.get_position();
+    const [w, h] = actor.get_size();
+    return { x, y, w, h };
+  }
+
+  private _onDragEnd(appId: string, success: boolean): void {
+    this._dragging = false;
+    this._dragSlot = null;
+    this._pressedAppId = null;
+    this._removeDropIndicator();
+
+    const actor = this._icons.get(appId);
+    if (actor) {
+      // The DND framework leaves drag-time styling to the drop target on
+      // success, and its snap-back restores scale but not the fixed position
+      // it took over while dragging under the pointer.
+      actor.opacity = 255;
+      actor.scale_x = 1;
+      actor.scale_y = 1;
+      actor.fixed_position_set = false;
+      this._applyIconSize(actor);
+    }
+    if (!success) {
+      // A cancelled drop re-adds the icon at the end of the container; put it
+      // back where the stored favorites order says it belongs.
+      this._restoreFavoriteSlot(appId);
+    }
+
+    this._onDragStateChanged?.(false);
+
+    if (this._pendingReload) {
+      this._pendingReload = false;
+      // Deferred: the DND framework still owns the drag actor until it
+      // finishes emitting drag-end, so rebuild on the next idle slice.
+      this._removePendingReloadSource();
+      this._pendingReloadSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        this._pendingReloadSourceId = null;
+        this._reload();
+        return GLib.SOURCE_REMOVE;
+      });
+    }
+  }
+
+  private _removePendingReloadSource(): void {
+    if (this._pendingReloadSourceId !== null) {
+      GLib.source_remove(this._pendingReloadSourceId);
+      this._pendingReloadSourceId = null;
+    }
+  }
+
+  private _restoreFavoriteSlot(appId: string): void {
+    const actor = this._icons.get(appId);
+    if (!actor || actor.get_parent() !== this._container) return;
+
+    // A cancelled drop re-appends the icon at the end of the container.
+    // Recompute its slot from the stored order rather than from the current
+    // child order, which the append has just disturbed.
+    const positionInFavorites = this._favorites.indexOf(appId);
+    if (positionInFavorites < 0) return;
+    let desired = 0;
+    for (let i = 0; i < positionInFavorites; i++) {
+      if (this._icons.has(this._favorites[i])) desired++;
+    }
+
+    const current = this._container.get_children().indexOf(actor);
+    if (current === desired) return;
+
+    this._container.remove_child(actor);
+    this._container.insert_child_at_index(actor, desired);
+  }
+
+  private _handleDragOver(
+    source: DragSource | null,
+    _dragActor: Clutter.Actor,
+    x: number,
+    y: number,
+    _time: number,
+  ): number {
+    if (!source?.isFavorite) {
+      // Not a source we created. CONTINUE lets the DND framework keep walking
+      // up the target chain instead of pinning a foreign drag to this dock.
+      this._removeDropIndicator();
+      return DND.DragMotionResult.CONTINUE;
+    }
+    if (!this._dragReorderEnabled || !this._favorites.includes(source.appId)) {
+      this._removeDropIndicator();
+      return DND.DragMotionResult.NO_DROP;
+    }
+
+    const index = this._calcDropIndex(x, y);
+    if (index < 0) {
+      this._removeDropIndicator();
+      return DND.DragMotionResult.NO_DROP;
+    }
+
+    this._showDropIndicator(index);
+    return DND.DragMotionResult.MOVE_DROP;
+  }
+
+  private _acceptDrop(
+    source: DragSource | null,
+    dragActor: Clutter.Actor,
+    x: number,
+    y: number,
+    _time: number,
+  ): boolean {
+    if (!this._dragReorderEnabled || !source?.isFavorite) return false;
+    if (!this._favorites.includes(source.appId)) return false;
+
+    const actor = this._icons.get(source.appId);
+    if (!actor || actor !== dragActor) return false;
+
+    const index = this._calcDropIndex(x, y);
+    if (index < 0) return false;
+
+    // Map the drop slot (computed over the visible pinned icons) back onto the
+    // stored favorites list so entries without a rendered actor survive.
+    const present = this._favoriteActors()
+      .map((a) => this._getStored(a)?.appId)
+      .filter((id): id is string => !!id && id !== source.appId);
+    const beforeId = index < present.length ? present[index] : null;
+
+    const order = this._favorites.filter((id) => id !== source.appId);
+    const at = beforeId ? order.indexOf(beforeId) : order.length;
+    if (at < 0) {
+      order.push(source.appId);
+    } else {
+      order.splice(at, 0, source.appId);
+    }
+
+    const previous = this._favorites;
+    this._favorites = order;
+    if (!this._writeFavorites(order)) {
+      this._favorites = previous;
+      return false;
+    }
+
+    this._reorderFavoriteActors(order);
+    this._removeDropIndicator();
+
+    // Undo the drag-time styling applied by the DND framework: it lifts the
+    // icon into the UI group, pins an explicit position under the pointer and
+    // drops the opacity. Reparenting alone does not restore any of that.
+    actor.fixed_position_set = false;
+    actor.opacity = 255;
+    actor.scale_x = 1;
+    actor.scale_y = 1;
+    this._applyIconSize(actor);
+    return true;
+  }
+
+  private _isVerticalLayout(): boolean {
+    const box = this._container as unknown as { orientation?: number; vertical?: boolean };
+    if (box.orientation !== undefined) return box.orientation === Clutter.Orientation.VERTICAL;
+    return box.vertical === true;
+  }
+
+  /**
+   * Insertion slot for a pointer position given in container-local
+   * coordinates, or -1 when the pointer is outside the pinned area.
+   */
+  private _calcDropIndex(x: number, y: number): number {
+    const vertical = this._isVerticalLayout();
+    const coord = vertical ? y : x;
+    const pad = IconManager.DROP_ZONE_PADDING;
+
+    const favs = this._favoriteActors();
+    if (favs.length === 0) {
+      // The dragged icon is the only pinned one, so the container has no
+      // sibling left to measure against. Fall back to the slot it was lifted
+      // from so the drop is accepted as a no-op rather than snapping back.
+      const slot = this._dragSlot;
+      if (!slot) return -1;
+      const start = (vertical ? slot.y : slot.x) - pad;
+      const size = vertical ? slot.h : slot.w;
+      if (coord < start || coord > start + size + pad) return -1;
+      return 0;
+    }
+
+    const first = favs[0];
+    const [fx, fy] = first.get_position();
+    const last = favs[favs.length - 1];
+    const [lx, ly] = last.get_position();
+    const [lw, lh] = last.get_size();
+
+    const zoneStart = (vertical ? fy : fx) - pad;
+    const zoneEnd = (vertical ? ly + lh : lx + lw) + pad;
+    if (coord < zoneStart || coord > zoneEnd) return -1;
+
+    for (let i = 0; i < favs.length; i++) {
+      const [px, py] = favs[i].get_position();
+      const [pw, ph] = favs[i].get_size();
+      const center = vertical ? py + ph / 2 : px + pw / 2;
+      if (coord < center) return i;
+    }
+    return favs.length;
+  }
+
+  private _showDropIndicator(index: number): void {
+    const vertical = this._isVerticalLayout();
+    const halfGap = IconManager.ICON_SPACING / 2;
+
+    const favs = this._favoriteActors();
+    let cross: number;
+    let crossSize: number;
+    let boundary: number;
+
+    if (favs.length > 0) {
+      const n = favs.length;
+      const ref = index < n ? favs[index] : favs[n - 1];
+      const [rx, ry] = ref.get_position();
+      const [rw, rh] = ref.get_size();
+
+      // Slot edge in container-local coordinates (midway through the gap).
+      const slotAtEnd = index === n;
+      boundary = vertical
+        ? slotAtEnd
+          ? ry + rh + halfGap
+          : ry - halfGap
+        : slotAtEnd
+          ? rx + rw + halfGap
+          : rx - halfGap;
+      cross = vertical ? rx : ry;
+      crossSize = vertical ? rw : rh;
+    } else if (this._dragSlot) {
+      // Sole pinned icon: mark the leading edge of the slot it came from.
+      const slot = this._dragSlot;
+      cross = vertical ? slot.x : slot.y;
+      crossSize = vertical ? slot.w : slot.h;
+      boundary = vertical ? slot.y - halfGap : slot.x - halfGap;
+    } else {
+      return;
+    }
+
+    if (!this._dropIndicator) {
+      this._dropIndicator = new St.Widget({ style_class: "macos-dock-drop-indicator" });
+      // Keep the indicator out of stage picking so it can never become the
+      // drop target itself.
+      Shell.util_set_hidden_from_pick(this._dropIndicator, true);
+      Main.layoutManager.addTopChrome(this._dropIndicator);
+    }
+
+    const thickness = IconManager.DROP_INDICATOR_THICKNESS;
+    const length = Math.max(8, Math.min(IconManager.DROP_INDICATOR_LENGTH, crossSize - 8));
+    const [cx, cy] = this._container.get_transformed_position();
+
+    if (vertical) {
+      this._dropIndicator.set_size(length, thickness);
+      this._dropIndicator.set_position(
+        cx + cross + (crossSize - length) / 2,
+        cy + boundary - thickness / 2,
+      );
+    } else {
+      this._dropIndicator.set_size(thickness, length);
+      this._dropIndicator.set_position(
+        cx + boundary - thickness / 2,
+        cy + cross + (crossSize - length) / 2,
+      );
+    }
+  }
+
+  private _removeDropIndicator(): void {
+    if (!this._dropIndicator) return;
+    Main.layoutManager.removeChrome(this._dropIndicator);
+    this._dropIndicator.destroy();
+    this._dropIndicator = null;
+  }
+
+  /** Reparent and reorder pinned icons so the container matches `order`. */
+  private _reorderFavoriteActors(order: string[]): void {
+    const actors: IconActor[] = [];
+    for (const id of order) {
+      const actor = this._icons.get(id);
+      if (actor) actors.push(actor);
+    }
+
+    for (const actor of actors) {
+      const parent = actor.get_parent();
+      if (parent) parent.remove_child(actor);
+    }
+    actors.forEach((actor, i) => {
+      this._container.insert_child_at_index(actor, i);
+    });
+  }
+
+  private _writeFavorites(order: string[]): boolean {
+    if (!this._favoriteSettings) return false;
+    return this._favoriteSettings.set_strv("favorite-apps", order);
+  }
+
+  private _onFavoritesChangedExternally(): void {
+    const order = this._readFavorites();
+    const same =
+      order.length === this._favorites.length && order.every((id, i) => id === this._favorites[i]);
+    if (same) return;
+    this._reload();
+  }
+
+  private _isPointerOver(actor: IconActor): boolean {
+    const [px, py] = global.get_pointer();
+    const [ax, ay] = actor.get_transformed_position();
+    const [aw, ah] = actor.get_transformed_size();
+    return px >= ax && px <= ax + aw && py >= ay && py <= ay + ah;
   }
 
   private _getStored(actor: IconActor): AppData | null {

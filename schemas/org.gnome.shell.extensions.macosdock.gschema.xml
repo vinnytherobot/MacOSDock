@@ -182,5 +182,10 @@
       <summary>Media indicator</summary>
       <description>Show a music note indicator on the icon of the currently playing media app</description>
     </key>
+    <key name="drag-reorder" type="b">
+      <default>true</default>
+      <summary>Drag to reorder</summary>
+      <description>Allow dragging pinned icons to reorder them</description>
+    </key>
   </schema>
 </schemalist>

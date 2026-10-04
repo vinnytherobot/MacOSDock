@@ -172,6 +172,13 @@ export default class MacosDockPreferences extends ExtensionPreferences {
     settings.bind("show-running-apps", showRunningAppsRow, "active", BIND_FLAGS);
     behaviorGroup.add(showRunningAppsRow);
 
+    const dragReorderRow = new Adw.SwitchRow({
+      title: "Drag to reorder",
+      subtitle: "Drag pinned icons to change their order",
+    });
+    settings.bind("drag-reorder", dragReorderRow, "active", BIND_FLAGS);
+    behaviorGroup.add(dragReorderRow);
+
     const workspaceModeModel = new Gtk.StringList({
       strings: ["All workspaces", "Current workspace only"],
     });

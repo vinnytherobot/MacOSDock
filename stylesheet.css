@@ -151,3 +151,10 @@
 .macos-dock-media-indicator-icon {
   color: #8ec8ff;
 }
+
+/* Drag-reorder drop indicator */
+.macos-dock-drop-indicator {
+  border-radius: 2px;
+  background-color: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
