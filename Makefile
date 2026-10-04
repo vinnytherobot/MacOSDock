@@ -24,6 +24,7 @@ zip: build
 	@cp stylesheet.css dist/
 	@mkdir -p dist/schemas
 	@cp schemas/*.gschema.xml dist/schemas/
+	@cp schemas/gschemas.compiled dist/schemas/
 	@cd dist && zip -r ../$(UUID).v$(VERSION).zip . -x '*.map'
 	@echo "Created $(UUID).v$(VERSION).zip"
 
