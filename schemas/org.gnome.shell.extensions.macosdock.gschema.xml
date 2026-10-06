@@ -55,7 +55,7 @@
     <key name="icon-quality" type="i">
       <default>2</default>
       <summary>Icon quality multiplier</summary>
-      <description>Render icons at N times native resolution to prevent blur when magnified (1, 2, or 4)</description>
+      <description>Render icons at a minimum of N times native resolution; HiDPI and magnification may increase it automatically (1, 2, or 4)</description>
     </key>
     <key name="show-threshold" type="i">
       <default>25</default>

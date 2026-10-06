@@ -80,6 +80,9 @@ export class IconManager {
   private _container: InstanceType<typeof St.BoxLayout>;
   private _iconSize: number;
   private _runningIndicatorsEnabled: boolean;
+  private _quality: number;
+  private _magnificationScale: number;
+  private _resourceScale: number = 1;
   private _indicatorStyle: number; // 0 = dots per window, 1 = horizontal bar
   private _onClicked: DockIconClicked | null = null;
   private _onIconsChanged: IconsChanged | null = null;
@@ -129,12 +132,15 @@ export class IconManager {
     iconSize: number,
     runningIndicatorsEnabled: boolean,
     _quality: number = 2,
+    magnificationScale: number = 1,
     indicatorStyle: number = 0,
   ) {
     this._signals = new SignalManager();
     this._container = container;
     this._iconSize = iconSize;
     this._runningIndicatorsEnabled = runningIndicatorsEnabled;
+    this._quality = _quality;
+    this._magnificationScale = magnificationScale;
     this._indicatorStyle = indicatorStyle;
   }
 
@@ -184,7 +190,51 @@ export class IconManager {
     }
   }
 
-  setQuality(_quality: number): void {
+  setQuality(quality: number): void {
+    this._quality = quality;
+    this._refreshIconResolution();
+  }
+
+  setMagnificationScale(scale: number): void {
+    this._magnificationScale = scale;
+    this._refreshIconResolution();
+  }
+
+  refreshResourceScale(): void {
+    this._refreshIconResolution();
+  }
+
+  private _getTextureMultiplier(): number {
+    const quality = Math.max(1, this._quality);
+    const resourceScale = Math.max(1, this._resourceScale);
+    const magnificationScale = Math.max(1, this._magnificationScale);
+    // Quality is expressed in physical-resolution multiples. Keep it
+    // distinct from the automatic magnification floor: on a 2x display,
+    // quality 1x and magnification 2x require 4x logical source resolution,
+    // while quality 4x must still request 8x to have an observable effect.
+    return resourceScale * Math.max(quality, magnificationScale);
+  }
+
+  private _getTextureSize(): number {
+    return Math.max(1, Math.ceil(this._iconSize * this._getTextureMultiplier()));
+  }
+
+  /**
+   * Use Shell.App's icon pipeline instead of constructing St.Icon from the
+   * desktop-file GIcon. The Shell pipeline selects the correct themed asset
+   * and scale before returning the texture, just like the stock GNOME dash.
+   */
+  private _createIconTexture(app: Shell.App): InstanceType<typeof St.Icon> {
+    const icon = app.create_icon_texture(this._getTextureSize()) as InstanceType<typeof St.Icon>;
+    icon.set_size(this._iconSize, this._iconSize);
+    icon.add_style_class_name("macos-dock-icon-gicon");
+    icon.x_align = Clutter.ActorAlign.CENTER;
+    icon.y_align = Clutter.ActorAlign.CENTER;
+    return icon;
+  }
+
+  private _refreshIconResolution(): void {
+    this._resourceScale = this._container.get_resource_scale();
     for (const actor of this._icons.values()) {
       this._applyIconSize(actor);
     }
@@ -240,6 +290,7 @@ export class IconManager {
   }
 
   start(): void {
+    this._refreshIconResolution();
     const appSystem = Shell.AppSystem.get_default();
 
     this._signals.connect(appSystem, "installed-changed", () => this._reload());
@@ -530,13 +581,7 @@ export class IconManager {
 
     this._applyIconSize(actor);
 
-    const icon = new St.Icon({
-      gicon: app.get_icon(),
-      icon_size: this._iconSize,
-      style_class: "macos-dock-icon-gicon",
-      x_align: Clutter.ActorAlign.CENTER,
-      y_align: Clutter.ActorAlign.CENTER,
-    });
+    const icon = this._createIconTexture(app);
 
     const iconWrapper = new St.Widget({
       style_class: "macos-dock-icon-wrapper",
@@ -661,7 +706,20 @@ export class IconManager {
   private _applyIconSize(actor: IconActor): void {
     const data = this._getStored(actor);
     if (data) {
-      data.icon.set_icon_size(this._iconSize);
+      const app = this._apps.get(data.appId);
+      if (app) {
+        // Recreate the texture so Shell.App reloads the icon at the new
+        // resolution. Changing St.Icon:icon-size alone can leave the old
+        // cached texture in place, which makes icon-quality appear inert.
+        const oldIcon = data.icon;
+        const icon = this._createIconTexture(app);
+        data.iconWrapper.remove_child(oldIcon);
+        oldIcon.destroy();
+        data.iconWrapper.add_child(icon);
+        data.icon = icon;
+      } else {
+        data.icon.set_size(this._iconSize, this._iconSize);
+      }
       data.iconWrapper.set_size(this._iconSize, this._iconSize);
       if (data.mediaIndicator) {
         this._positionMediaIndicator(data.mediaIndicator);

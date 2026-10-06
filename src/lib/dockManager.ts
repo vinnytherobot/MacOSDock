@@ -69,6 +69,7 @@ export class DockManager {
       settings.get_int("icon-size"),
       settings.get_boolean("running-indicators"),
       settings.get_int("icon-quality"),
+      settings.get_double("magnification-scale"),
       settings.get_int("running-indicator-style"),
     );
     this._iconManager.setOnClicked((app) => this._onAppClicked(app));
@@ -118,6 +119,15 @@ export class DockManager {
     this._registerKeybindings();
     this._updatePosition();
     this._signals.connect(global.display, "workareas-changed", () => this._updatePosition());
+    // Monitor changes are emitted by Meta.MonitorManager, not Meta.Display.
+    // Connecting this signal to global.display breaks extension startup on
+    // GNOME Shell 50 with "No signal 'monitors-changed'".
+    this._signals.connect(global.backend.get_monitor_manager(), "monitors-changed", () => {
+      if (this._iconManager) {
+        this._iconManager.refreshResourceScale();
+      }
+      this._updatePosition();
+    });
 
     // Watch for newly launched apps so we can bounce their dock icon.
     const tracker = Shell.WindowTracker.get_default();
@@ -145,6 +155,9 @@ export class DockManager {
     this._signals.connect(settings, "changed::magnification-scale", () => {
       if (this._magnification) {
         this._magnification.setMaxScale(settings.get_double("magnification-scale"));
+      }
+      if (this._iconManager) {
+        this._iconManager.setMagnificationScale(settings.get_double("magnification-scale"));
       }
     });
     this._signals.connect(settings, "changed::magnification-falloff", () => {
