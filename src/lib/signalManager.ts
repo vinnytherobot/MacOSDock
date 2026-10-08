@@ -17,9 +17,25 @@ export class SignalManager {
     return id;
   }
 
+  disconnect(id: number): void {
+    const index = this._connections.findIndex((c) => c.signalId === id);
+    if (index !== -1) {
+      const [conn] = this._connections.splice(index, 1);
+      try {
+        conn.source.disconnect(conn.signalId);
+      } catch {
+        // Source may have already been disposed
+      }
+    }
+  }
+
   disconnectAll(): void {
     for (const conn of this._connections) {
-      conn.source.disconnect(conn.signalId);
+      try {
+        conn.source.disconnect(conn.signalId);
+      } catch {
+        // Source may have already been disposed
+      }
     }
     this._connections = [];
   }
