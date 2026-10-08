@@ -28,6 +28,7 @@ export class WindowPreviewPopup {
   private _visible = false;
   private _previewWidth: number;
   private _lastIconActor: IconActor | null = null;
+  private _currentApp: Shell.App | null = null;
 
   constructor() {
     this._signals = new SignalManager();
@@ -58,7 +59,7 @@ export class WindowPreviewPopup {
     if (windows.length === 0) return;
 
     // If already showing for the same app, do nothing
-    if (this._visible && this._popup) {
+    if (this._visible && this._popup && this._currentApp === app) {
       return;
     }
 
@@ -101,6 +102,7 @@ export class WindowPreviewPopup {
   }
 
   private _createPopup(app: Shell.App, windows: Meta.Window[], iconActor: IconActor): void {
+    this._currentApp = app;
     const grid = new St.BoxLayout({
       style_class: "macos-dock-preview-grid",
       vertical: false,
@@ -204,7 +206,14 @@ export class WindowPreviewPopup {
     // Window thumbnail using Clutter.Clone of the window actor
     const windowActors = global.get_window_actors();
     for (const wa of windowActors) {
-      const metaWin2 = (wa as unknown as Record<string, unknown>).meta_window;
+      const waRecord = wa as unknown as {
+        get_meta_window?: () => Meta.Window;
+        meta_window?: Meta.Window;
+      };
+      const metaWin2 =
+        typeof waRecord.get_meta_window === "function"
+          ? waRecord.get_meta_window()
+          : waRecord.meta_window;
       if (metaWin2 === metaWin) {
         const clone = new Clutter.Clone({
           source: wa,
@@ -239,7 +248,7 @@ export class WindowPreviewPopup {
       reactive: true,
     });
     closeBtn.set_pivot_point(1.0, 0.0);
-    closeBtn.connect("clicked", () => {
+    this._signals.connect(closeBtn, "clicked", () => {
       metaWin.delete(global.get_current_time());
       if (this._refreshTimer !== null) {
         GLib.source_remove(this._refreshTimer);
@@ -251,7 +260,7 @@ export class WindowPreviewPopup {
         return GLib.SOURCE_REMOVE;
       });
     });
-    closeBtn.connect("button-press-event", () => Clutter.EVENT_STOP);
+    this._signals.connect(closeBtn, "button-press-event", () => Clutter.EVENT_STOP);
     thumbBox.add_child(closeBtn);
 
     // Click to focus this window
@@ -327,6 +336,7 @@ export class WindowPreviewPopup {
 
   private _animateOut(onComplete: () => void): void {
     if (!this._popup) {
+      this._visible = false;
       onComplete();
       return;
     }
@@ -338,9 +348,9 @@ export class WindowPreviewPopup {
       duration: 120,
       mode: Clutter.AnimationMode.EASE_IN_QUAD,
       onComplete: () => {
-        this._visible = false;
-        // Only call onComplete if the popup hasn't been replaced
+        // Only run if the popup hasn't been replaced or already destroyed
         if (this._popup === popupRef) {
+          this._visible = false;
           onComplete();
         }
       },
@@ -365,13 +375,17 @@ export class WindowPreviewPopup {
   private _updateFocusHighlights(): void {
     const tracker = Shell.WindowTracker.get_default();
     for (const thumb of this._thumbs) {
-      const isFocused = tracker.focus_app === thumb.app && thumb.metaWindow.has_focus();
-      if (isFocused) {
-        if (!thumb.actor.has_style_class_name("macos-dock-preview-focused")) {
-          thumb.actor.add_style_class_name("macos-dock-preview-focused");
+      try {
+        const isFocused = tracker.focus_app === thumb.app && thumb.metaWindow.has_focus();
+        if (isFocused) {
+          if (!thumb.actor.has_style_class_name("macos-dock-preview-focused")) {
+            thumb.actor.add_style_class_name("macos-dock-preview-focused");
+          }
+        } else {
+          thumb.actor.remove_style_class_name("macos-dock-preview-focused");
         }
-      } else {
-        thumb.actor.remove_style_class_name("macos-dock-preview-focused");
+      } catch {
+        // Window or actor may have already been closed or destroyed
       }
     }
   }
@@ -401,20 +415,30 @@ export class WindowPreviewPopup {
 
   private _destroyPopup(): void {
     this._stopUpdateTimer();
+    this._cancelCloseTimer();
+    this._cancelRefreshTimer();
 
-    for (const thumb of this._thumbs) {
-      thumb.actor.destroy();
-    }
-    this._thumbs = [];
+    // Disconnect all signal handlers FIRST while all actors are still alive
+    this._signals.disconnectAll();
 
     if (this._popup) {
-      this._signals.disconnectAll();
+      this._popup.remove_all_transitions();
       Main.layoutManager.removeChrome(this._popup);
       this._popup.destroy();
       this._popup = null;
     }
 
+    for (const thumb of this._thumbs) {
+      try {
+        thumb.actor.destroy();
+      } catch {
+        // May have already been destroyed as a child of this._popup
+      }
+    }
+    this._thumbs = [];
+
     this._visible = false;
+    this._currentApp = null;
   }
 
   private _cancelCloseTimer(): void {
