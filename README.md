@@ -30,6 +30,7 @@
 ## Compatibility
 
 - GNOME Shell 45+
+- GNOME Shell 42 (e.g. Ubuntu 22.04) via a legacy build — `make install` detects the Shell version and installs it automatically (`make build-legacy` builds it into `dist-legacy/`)
 - Tested on Fedora, Ubuntu, and Arch Linux
 
 ## Installation

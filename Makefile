@@ -1,17 +1,41 @@
 UUID = macos-dock@vinnytherobot.github.io
 INSTALL_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 VERSION = $(shell node -e "console.log(require('./metadata.json').version)")
+# GNOME Shell < 45 cannot load ES-module extensions; install the legacy build there.
+SHELL_MAJOR = $(shell gnome-shell --version 2>/dev/null | grep -oE '[0-9]+' | head -n1)
+LEGACY_SHELL = $(shell [ -n "$(SHELL_MAJOR)" ] && [ "$(SHELL_MAJOR)" -lt 45 ] && echo yes)
 
-.PHONY: build install clean lint zip
+.PHONY: build build-legacy install install-modern install-legacy clean lint zip
 
-build:
+node_modules: package.json package-lock.json
+	npm ci
+	@touch node_modules
+
+build: node_modules
 	npm run build
 	glib-compile-schemas schemas/
 
-lint:
+lint: node_modules
 	npx biome check src/
 
-install: build
+build-legacy: node_modules
+	node legacy/build.mjs
+	glib-compile-schemas dist-legacy/schemas/
+
+ifeq ($(LEGACY_SHELL),yes)
+install: install-legacy
+else
+install: install-modern
+endif
+
+install-legacy: build-legacy
+	rm -rf $(INSTALL_DIR)
+	mkdir -p $(INSTALL_DIR)
+	cp -r dist-legacy/* $(INSTALL_DIR)/
+	@echo "Installed GNOME $(SHELL_MAJOR) build. Restart Shell (Alt+F2 → r) or re-login."
+
+install-modern: build
+	rm -rf $(INSTALL_DIR)
 	mkdir -p $(INSTALL_DIR)
 	cp -r dist/* $(INSTALL_DIR)/
 	cp metadata.json $(INSTALL_DIR)/
@@ -30,4 +54,5 @@ zip: build
 
 clean:
 	npm run clean
+	rm -rf dist-legacy
 	rm -rf schemas/*.compiled

@@ -672,10 +672,10 @@ export class IconManager {
         }
       } else {
         this._hideTooltip();
-        // Schedule hide of preview popup (delay allows mouse to move to popup)
-        if (this._previewPopup?.isVisible()) {
-          this._previewPopup.scheduleHide();
-        }
+        // Schedule hide of preview popup (delay allows mouse to move to popup).
+        // Not gated on isVisible(): that only turns true once the fade-in
+        // finishes, so a quick pass over the icon would leave the popup stuck.
+        this._previewPopup?.scheduleHide();
       }
       return Clutter.EVENT_PROPAGATE;
     });
