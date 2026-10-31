@@ -98,6 +98,7 @@ export class IconManager {
   private _windowChangeSourceId: number | null = null;
   private _tooltipText: InstanceType<typeof St.Label> | null = null;
   private _contextMenu: ContextMenu | null = null;
+  private _contextMenuOpenSourceId: number | null = null;
   private _menuSignals: SignalManager | null = null;
   private _menuManager: MenuManager | null = null;
   private _separator: InstanceType<typeof St.Widget> | null = null;
@@ -1372,7 +1373,8 @@ export class IconManager {
     menuManager.addMenu(menu);
     this._onContextMenuActorChanged?.(menu.actor);
 
-    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+    this._contextMenuOpenSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+      this._contextMenuOpenSourceId = null;
       if (this._contextMenu !== menu) {
         return GLib.SOURCE_REMOVE;
       }
@@ -1392,6 +1394,11 @@ export class IconManager {
   }
 
   private _finalizeContextMenu(): void {
+    if (this._contextMenuOpenSourceId !== null) {
+      GLib.source_remove(this._contextMenuOpenSourceId);
+      this._contextMenuOpenSourceId = null;
+    }
+
     this._onContextMenuActorChanged?.(null);
     if (this._menuSignals) {
       this._menuSignals.disconnectAll();
