@@ -1,6 +1,6 @@
 import Clutter from "gi://Clutter";
 import GLib from "gi://GLib";
-import type St from "gi://St";
+import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import type { Intellihide, OverlapStatus } from "./intellihide.js";
 import { SignalManager } from "./signalManager.js";
@@ -9,10 +9,9 @@ import type { WindowPreviewPopup } from "./windowPreview.js";
 type Container = InstanceType<typeof St.BoxLayout>;
 
 /**
- * Manages auto-hide visibility using a stable interaction region instead of
- * fixed screen-edge thresholds. The region covers the screen edge zone, the
- * dock's resting bounds, and the magnification envelope. Once the pointer
- * enters this region the dock stays visible until the pointer fully leaves.
+ * Reveals the dock through a reactive screen-edge actor and hides it after a
+ * debounced pointer check. While shown, the dock stays visible under the
+ * pointer and while its preview or context menu is active.
  *
  * Intellihide overlap changes are routed through the pointer-position check
  * so that a maximized window behind the dock does not cause a show/hide
@@ -30,34 +29,35 @@ export class DockVisibility {
   private _animationDuration: number;
   private _showThreshold: number;
   private _dockHeight: number;
-  private _marginBottom: number;
   private _magnificationScale: number;
   private _edge: number;
+  private _dockBounds: { x: number; y: number; width: number; height: number } | null = null;
   private _previewPopup: WindowPreviewPopup | null = null;
   private _contextMenuActor: InstanceType<typeof St.Widget> | null = null;
+  private _edgeActivator: InstanceType<typeof St.Widget> | null = null;
 
   private _pointerX = 0;
   private _pointerY = 0;
   private _dragActive = false;
 
-  // Latches true when the pointer first enters the edge zone to show the dock.
-  // While true the dock stays visible as long as the pointer is anywhere in the
-  // interaction region (edge zone OR dock bounds). Resets when the dock hides.
-  private _interactionActive = false;
-
   private _shown = false;
-  private _animating = false;
-  private _animation: unknown = null;
   private _restingTranslationX = 0;
   private _restingTranslationY = 0;
 
-  private _pollId: number | null = null;
+  private _hideSourceId: number | null = null;
+  private _animationSourceId: number | null = null;
+  private _animationStartTime = 0;
+  private _animationFromX = 0;
+  private _animationFromY = 0;
+  private _animationFromOpacity = 0;
+  private _animationToX = 0;
+  private _animationToY = 0;
+  private _animationToOpacity = 0;
 
   constructor(
     container: Container,
     intellihide: Intellihide,
     dockHeight: number,
-    marginBottom: number,
     animationDuration: number = 200,
     showThreshold: number = 25,
     edge: number = 0,
@@ -69,7 +69,6 @@ export class DockVisibility {
     this._animationDuration = animationDuration;
     this._showThreshold = showThreshold;
     this._dockHeight = dockHeight;
-    this._marginBottom = marginBottom;
     this._magnificationScale = magnificationScale;
     this._edge = edge;
   }
@@ -84,21 +83,27 @@ export class DockVisibility {
 
   /**
    * Hold the dock in its shown state while a drag-reorder is in progress so
-   * the auto-hide poll cannot slide the dock away underneath the pointer.
+   * the delayed auto-hide check cannot slide the dock away underneath the pointer.
    */
   setDragActive(active: boolean): void {
     if (active === this._dragActive) return;
     this._dragActive = active;
     if (active) {
-      this._interactionActive = true;
       this._show();
     } else {
-      this._check();
+      this._updatePointerState();
     }
   }
 
   setEdge(edge: number): void {
     this._edge = edge;
+    this._updateEdgeActivatorBounds();
+  }
+
+  updateDockBounds(x: number, y: number, width: number, height: number): void {
+    this._monitor = Main.layoutManager.primaryMonitor;
+    this._dockBounds = { x, y, width, height };
+    this._updateEdgeActivatorBounds();
   }
 
   isShown(): boolean {
@@ -106,7 +111,7 @@ export class DockVisibility {
   }
 
   isAnimating(): boolean {
-    return this._animating;
+    return this._animationSourceId !== null;
   }
 
   isHidden(): boolean {
@@ -120,6 +125,9 @@ export class DockVisibility {
   }
 
   start(): void {
+    this._cancelHide();
+    this._cancelAnimation();
+
     this._monitor = Main.layoutManager.primaryMonitor;
     if (!this._monitor) {
       console.error("[macos-dock] No primary monitor available");
@@ -129,55 +137,94 @@ export class DockVisibility {
     this._container.visible = false;
     this._container.opacity = 0;
     this._shown = false;
-    this._interactionActive = false;
     this._dragActive = false;
 
-    this._container.translation_x = 0;
-    this._container.translation_y = 0;
     this._restingTranslationX = 0;
     this._restingTranslationY = 0;
+    const [offsetX, offsetY] = this._getSlideOffset();
+    this._container.translation_x = offsetX;
+    this._container.translation_y = offsetY;
+
+    this._edgeActivator = new St.Widget({
+      name: "macos-dock-edge-activator",
+      reactive: true,
+      track_hover: true,
+      opacity: 0,
+    });
+    Main.layoutManager.addChrome(this._edgeActivator, {
+      affectsStruts: false,
+      trackFullscreen: false,
+    });
+    this._updateEdgeActivatorBounds();
+    this._signals.connect(this._edgeActivator, "enter-event", () => {
+      const [x, y] = global.get_pointer();
+      this._pointerX = x;
+      this._pointerY = y;
+      this._show();
+      return Clutter.EVENT_PROPAGATE;
+    });
+    this._signals.connect(
+      this._edgeActivator,
+      "motion-event",
+      (_actor: unknown, event: unknown) => {
+        const [x, y] = (event as Clutter.Event).get_coords();
+        this._pointerX = x;
+        this._pointerY = y;
+        this._show();
+        return Clutter.EVENT_PROPAGATE;
+      },
+    );
+    this._signals.connect(this._container, "enter-event", () => {
+      const [x, y] = global.get_pointer();
+      this._pointerX = x;
+      this._pointerY = y;
+      this._updatePointerState();
+      return Clutter.EVENT_PROPAGATE;
+    });
+    this._signals.connect(this._container, "motion-event", (_actor: unknown, event: unknown) => {
+      const [x, y] = (event as Clutter.Event).get_coords();
+      this._pointerX = x;
+      this._pointerY = y;
+      this._updatePointerState();
+      return Clutter.EVENT_PROPAGATE;
+    });
+    this._signals.connect(this._container, "leave-event", () => {
+      const [x, y] = global.get_pointer();
+      this._pointerX = x;
+      this._pointerY = y;
+      this._updatePointerState();
+      return Clutter.EVENT_PROPAGATE;
+    });
 
     this._intellihide.start((overlap: OverlapStatus) => {
       this._onIntellihideChanged(overlap);
     });
 
-    if (this._pollId !== null) {
-      GLib.source_remove(this._pollId);
-      this._pollId = null;
-    }
-
     this._signals.connect(global.stage, "motion-event", (_actor: unknown, event: unknown) => {
       const [px, py] = (event as Clutter.Event).get_coords();
       this._pointerX = px;
       this._pointerY = py;
-      this._check();
+      this._updatePointerState();
       return Clutter.EVENT_PROPAGATE;
     });
 
-    this._pollId = GLib.timeout_add(GLib.PRIORITY_LOW, 100, () => {
-      const [x, y] = global.get_pointer();
-      this._pointerX = x;
-      this._pointerY = y;
-      this._check();
-      return true;
-    });
+    const [x, y] = global.get_pointer();
+    this._pointerX = x;
+    this._pointerY = y;
+    this._updatePointerState();
   }
 
   stop(): void {
-    if (this._pollId !== null) {
-      GLib.source_remove(this._pollId);
-      this._pollId = null;
-    }
-
+    this._cancelHide();
     this._signals.disconnectAll();
 
-    this._intellihide.stop();
-
-    if (this._animation) {
-      (this._animation as { cancel: () => void }).cancel();
+    if (this._edgeActivator) {
+      Main.layoutManager.removeChrome(this._edgeActivator);
+      this._edgeActivator.destroy();
+      this._edgeActivator = null;
     }
-    this._animation = null;
-    this._animating = false;
+
+    this._cancelAnimation();
     this._dragActive = false;
 
     this._container.translation_x = 0;
@@ -186,52 +233,94 @@ export class DockVisibility {
     this._container.opacity = 255;
   }
 
-  private _check(): void {
+  private _updatePointerState(): void {
     if (!this._monitor) return;
 
     // The dock stays up for the whole duration of a drag-reorder; hiding it
     // mid-drag would pull the drop target out from under the pointer.
-    if (this._dragActive) return;
+    if (this._dragActive) {
+      this._cancelHide();
+      return;
+    }
 
+    if (this._isPointerInPopupOrMenu()) {
+      this._cancelHide();
+      return;
+    }
+
+    if (this._isPointerInEdgeZone()) {
+      this._show();
+      return;
+    }
+
+    if (this._shown && this._isPointerInDockRegion()) {
+      this._cancelHide();
+      return;
+    }
+
+    if (this._shown) this._scheduleHide();
+  }
+
+  private _isPointerInPopupOrMenu(): boolean {
     if (this._previewPopup?.isVisible()) {
       const bounds = this._previewPopup.getBounds();
-      if (bounds) {
-        const insidePopup =
-          this._pointerX >= bounds.x &&
-          this._pointerX <= bounds.x + bounds.width &&
-          this._pointerY >= bounds.y &&
-          this._pointerY <= bounds.y + bounds.height;
-        if (insidePopup) return;
+      if (
+        bounds &&
+        this._pointerX >= bounds.x &&
+        this._pointerX <= bounds.x + bounds.width &&
+        this._pointerY >= bounds.y &&
+        this._pointerY <= bounds.y + bounds.height
+      ) {
+        return true;
       }
     }
 
     if (this._contextMenuActor?.mapped) {
-      const [mx, my] = this._contextMenuActor.get_transformed_position();
-      const [mw, mh] = this._contextMenuActor.get_size();
+      const [x, y] = this._contextMenuActor.get_transformed_position();
+      const [width, height] = this._contextMenuActor.get_size();
+      return (
+        this._pointerX >= x &&
+        this._pointerX <= x + width &&
+        this._pointerY >= y &&
+        this._pointerY <= y + height
+      );
+    }
+
+    return false;
+  }
+
+  private _isPointerInDockRegion(): boolean {
+    return this._isPointerInDockBounds() || this._isPointerOverDockActor();
+  }
+
+  private _scheduleHide(): void {
+    if (this._hideSourceId !== null) return;
+
+    this._hideSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 120, () => {
+      this._hideSourceId = null;
+      const [x, y] = global.get_pointer();
+      this._pointerX = x;
+      this._pointerY = y;
+
       if (
-        this._pointerX >= mx &&
-        this._pointerX <= mx + mw &&
-        this._pointerY >= my &&
-        this._pointerY <= my + mh
+        this._shown &&
+        !this._dragActive &&
+        !this._isPointerInPopupOrMenu() &&
+        !this._isPointerInEdgeZone() &&
+        !this._isPointerInDockRegion()
       ) {
-        return;
+        this._hide();
       }
-    }
 
-    const pointerInEdgeZone = this._isPointerInEdgeZone();
-    const pointerInDock = this._isPointerInDockBounds();
-    const pointerInRegion = pointerInEdgeZone || pointerInDock;
+      return GLib.SOURCE_REMOVE;
+    });
+  }
 
-    if (pointerInEdgeZone) {
-      this._interactionActive = true;
-    }
+  private _cancelHide(): void {
+    if (this._hideSourceId === null) return;
 
-    if (this._interactionActive && !this._shown) {
-      this._show();
-    } else if (!pointerInRegion && (this._shown || this._animating)) {
-      this._interactionActive = false;
-      this._hide();
-    }
+    GLib.Source.remove(this._hideSourceId);
+    this._hideSourceId = null;
   }
 
   /**
@@ -261,32 +350,84 @@ export class DockVisibility {
    * is on the dock itself.
    */
   private _isPointerInDockBounds(): boolean {
-    if (!this._monitor) return false;
+    const bounds = this._dockBounds;
+    if (!bounds) return false;
 
-    const magnificationExtra = this._dockHeight * (this._magnificationScale - 1);
+    const magnificationExtra = Math.max(0, this._dockHeight * (this._magnificationScale - 1));
+    const alongDockExtra = magnificationExtra / 2;
 
     switch (this._edge) {
       case 0: {
-        const dockTop =
-          this._monitor.y + this._monitor.height - this._dockHeight - this._marginBottom;
-        return this._pointerY >= dockTop - magnificationExtra;
+        return (
+          this._pointerX >= bounds.x - alongDockExtra &&
+          this._pointerX <= bounds.x + bounds.width + alongDockExtra &&
+          this._pointerY >= bounds.y - magnificationExtra &&
+          this._pointerY <= bounds.y + bounds.height
+        );
       }
       case 1: {
-        const dockLeft = this._monitor.x + this._marginBottom;
-        return this._pointerX <= dockLeft + magnificationExtra;
+        return (
+          this._pointerX >= bounds.x &&
+          this._pointerX <= bounds.x + bounds.width + magnificationExtra &&
+          this._pointerY >= bounds.y - alongDockExtra &&
+          this._pointerY <= bounds.y + bounds.height + alongDockExtra
+        );
       }
       case 2: {
-        const dockRight =
-          this._monitor.x + this._monitor.width - this._dockHeight - this._marginBottom;
-        return this._pointerX >= dockRight - magnificationExtra;
+        return (
+          this._pointerX >= bounds.x - magnificationExtra &&
+          this._pointerX <= bounds.x + bounds.width &&
+          this._pointerY >= bounds.y - alongDockExtra &&
+          this._pointerY <= bounds.y + bounds.height + alongDockExtra
+        );
       }
       case 3: {
-        const dockTop = this._monitor.y + this._marginBottom;
-        return this._pointerY <= dockTop + magnificationExtra;
+        return (
+          this._pointerX >= bounds.x - alongDockExtra &&
+          this._pointerX <= bounds.x + bounds.width + alongDockExtra &&
+          this._pointerY >= bounds.y &&
+          this._pointerY <= bounds.y + bounds.height + magnificationExtra
+        );
       }
     }
 
     return false;
+  }
+
+  private _isPointerOverDockActor(): boolean {
+    const actor = global.stage.get_actor_at_pos(
+      Clutter.PickMode.REACTIVE,
+      this._pointerX,
+      this._pointerY,
+    );
+    return actor === this._container || (actor !== null && this._container.contains(actor));
+  }
+
+  private _updateEdgeActivatorBounds(): void {
+    const monitor = this._monitor;
+    const bounds = this._dockBounds;
+    const activator = this._edgeActivator;
+    if (!monitor || !bounds || !activator) return;
+
+    const thickness = Math.max(2, this._showThreshold);
+    switch (this._edge) {
+      case 0:
+        activator.set_position(bounds.x, monitor.y + monitor.height - thickness);
+        activator.set_size(bounds.width, thickness);
+        break;
+      case 1:
+        activator.set_position(monitor.x, bounds.y);
+        activator.set_size(thickness, bounds.height);
+        break;
+      case 2:
+        activator.set_position(monitor.x + monitor.width - thickness, bounds.y);
+        activator.set_size(thickness, bounds.height);
+        break;
+      case 3:
+        activator.set_position(bounds.x, monitor.y);
+        activator.set_size(bounds.width, thickness);
+        break;
+    }
   }
 
   /**
@@ -295,82 +436,78 @@ export class DockVisibility {
    * while the pointer is near it.
    */
   private _isPointerInInteractionRegion(): boolean {
-    return this._isPointerInEdgeZone() || this._isPointerInDockBounds();
+    return (
+      this._isPointerInPopupOrMenu() || this._isPointerInEdgeZone() || this._isPointerInDockRegion()
+    );
   }
 
   private _show(): void {
-    if (this._animating) {
-      (this._animation as { cancel: () => void }).cancel();
-      this._animation = null;
-      this._animating = false;
-    }
+    this._cancelHide();
     if (this._shown) return;
 
     this._shown = true;
-
-    if (this._animationDuration === 0) {
-      this._container.visible = true;
-      this._container.opacity = 255;
-      this._container.translation_x = this._restingTranslationX;
-      this._container.translation_y = this._restingTranslationY;
-      return;
-    }
-
-    this._animating = true;
-    this._container.visible = true;
-    this._container.opacity = 0;
-
-    const [offsetX, offsetY] = this._getSlideOffset();
-    this._container.translation_x = this._restingTranslationX + offsetX;
-    this._container.translation_y = this._restingTranslationY + offsetY;
-
-    this._animation = this._container.ease({
-      translationX: this._restingTranslationX,
-      translationY: this._restingTranslationY,
-      opacity: 255,
-      duration: this._animationDuration,
-      mode: Clutter.AnimationMode.EASE_OUT_QUAD,
-      onComplete: () => {
-        this._animating = false;
-        this._animation = null;
-      },
-    });
+    this._animateVisibility(true);
   }
 
   private _hide(): void {
-    if (!this._shown && !this._animating) return;
+    if (!this._shown) return;
 
     this._shown = false;
+    this._animateVisibility(false);
+  }
+
+  private _animateVisibility(show: boolean): void {
+    this._cancelAnimation();
+    this._container.visible = true;
+
+    const [offsetX, offsetY] = this._getSlideOffset();
+    this._animationFromX = this._container.translation_x;
+    this._animationFromY = this._container.translation_y;
+    this._animationFromOpacity = this._container.opacity;
+    this._animationToX = show ? this._restingTranslationX : this._restingTranslationX + offsetX;
+    this._animationToY = show ? this._restingTranslationY : this._restingTranslationY + offsetY;
+    this._animationToOpacity = show ? 255 : 0;
 
     if (this._animationDuration === 0) {
-      this._container.visible = false;
-      this._container.opacity = 0;
-      this._container.translation_x = this._restingTranslationX;
-      this._container.translation_y = this._restingTranslationY;
-      this._animating = false;
+      this._finishVisibilityAnimation(show);
       return;
     }
 
-    if (this._animating) return;
+    this._animationStartTime = GLib.get_monotonic_time();
+    this._animationSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 16, () => {
+      const elapsedMs = (GLib.get_monotonic_time() - this._animationStartTime) / 1000;
+      const progress = Math.min(1, elapsedMs / this._animationDuration);
+      const easedProgress = show ? 1 - (1 - progress) ** 2 : progress ** 2;
 
-    this._animating = true;
+      this._container.translation_x =
+        this._animationFromX + (this._animationToX - this._animationFromX) * easedProgress;
+      this._container.translation_y =
+        this._animationFromY + (this._animationToY - this._animationFromY) * easedProgress;
+      this._container.opacity = Math.round(
+        this._animationFromOpacity +
+          (this._animationToOpacity - this._animationFromOpacity) * easedProgress,
+      );
 
-    const [offsetX, offsetY] = this._getSlideOffset();
-    this._animation = this._container.ease({
-      translationX: this._restingTranslationX + offsetX,
-      translationY: this._restingTranslationY + offsetY,
-      opacity: 0,
-      duration: this._animationDuration,
-      mode: Clutter.AnimationMode.EASE_IN_QUAD,
-      onComplete: () => {
-        this._container.visible = false;
-        this._container.translation_x = this._restingTranslationX;
-        this._container.translation_y = this._restingTranslationY;
-        this._container.opacity = 0;
-        this._animating = false;
-        this._animation = null;
-      },
+      if (progress < 1) return GLib.SOURCE_CONTINUE;
+
+      this._animationSourceId = null;
+      this._finishVisibilityAnimation(show);
+      return GLib.SOURCE_REMOVE;
     });
+  }
+
+  private _finishVisibilityAnimation(show: boolean): void {
+    this._container.translation_x = this._animationToX;
+    this._container.translation_y = this._animationToY;
+    this._container.opacity = this._animationToOpacity;
+    this._container.visible = show;
+  }
+
+  private _cancelAnimation(): void {
+    if (this._animationSourceId === null) return;
+
+    GLib.Source.remove(this._animationSourceId);
+    this._animationSourceId = null;
   }
 
   private _getSlideOffset(): [number, number] {
@@ -389,11 +526,15 @@ export class DockVisibility {
   }
 
   private _onIntellihideChanged(overlap: OverlapStatus): void {
-    if (!overlap) return;
     if (this._dragActive) return;
 
+    if (!overlap) {
+      this._show();
+      return;
+    }
+
     if (this._shown && !this._isPointerInInteractionRegion()) {
-      this._hide();
+      this._scheduleHide();
     }
   }
 }
