@@ -1,6 +1,6 @@
 UUID = macos-dock@vinnytherobot.github.io
 INSTALL_DIR = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
-VERSION = $(shell node -e "console.log(require('./metadata.json').version)")
+VERSION = $(shell node -p "require('./package.json').version")
 # GNOME Shell < 45 cannot load ES-module extensions; install the legacy build there.
 SHELL_MAJOR = $(shell gnome-shell --version 2>/dev/null | grep -oE '[0-9]+' | head -n1)
 LEGACY_SHELL = $(shell [ -n "$(SHELL_MAJOR)" ] && [ "$(SHELL_MAJOR)" -lt 45 ] && echo yes)
