@@ -26,6 +26,7 @@ export class MediaManager {
   private _activeApp: Shell.App | null = null;
   private _onStateChanged: MediaStateChanged | null = null;
   private _watchIds: number[] = [];
+  private _discoveryCancellable: Gio.Cancellable | null = null;
 
   constructor() {
     this._signals = new SignalManager();
@@ -45,11 +46,14 @@ export class MediaManager {
 
   start(): void {
     this._bus = Gio.DBus.session;
+    this._discoveryCancellable = new Gio.Cancellable();
     this._watchNames();
     this._discoverPlayers();
   }
 
   stop(): void {
+    this._discoveryCancellable?.cancel();
+    this._discoveryCancellable = null;
     this._signals.disconnectAll();
     if (this._bus) {
       for (const id of this._watchIds) {
@@ -60,6 +64,8 @@ export class MediaManager {
     this._players.clear();
     this._activePlayer = null;
     this._activeApp = null;
+    this._onStateChanged = null;
+    this._bus = null;
   }
 
   togglePlayPause(): void {
@@ -102,8 +108,9 @@ export class MediaManager {
   }
 
   private _discoverPlayers(): void {
-    if (!this._bus) return;
+    if (!this._bus || !this._discoveryCancellable) return;
     const bus = this._bus;
+    const cancellable = this._discoveryCancellable;
 
     bus.call(
       "org.freedesktop.DBus",
@@ -114,13 +121,17 @@ export class MediaManager {
       new GLib.VariantType("(as)"),
       Gio.DBusCallFlags.NONE,
       -1,
-      null,
+      cancellable,
       (_connection, res) => {
+        if (cancellable.is_cancelled()) return;
+
         let names: string[];
         try {
           [names] = bus.call_finish(res).deepUnpack() as [string[]];
         } catch (e) {
-          console.error("[macos-dock][media] discover error:", e);
+          if (!cancellable.is_cancelled()) {
+            console.error("[macos-dock][media] discover error:", e);
+          }
           return;
         }
         for (const name of names) {

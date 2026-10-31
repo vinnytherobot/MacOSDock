@@ -501,19 +501,11 @@ export class DockManager {
     const dash = Main.overview.dash;
     this._originalDashVisible = dash.visible;
     dash.hide();
-    const dashSpacer = (dash as unknown as { _dashSpacer?: St.Widget })._dashSpacer;
-    if (dashSpacer) {
-      dashSpacer.visible = false;
-    }
   }
 
   private _showDefaultDash(): void {
     const dash = Main.overview.dash;
     dash.visible = this._originalDashVisible ?? true;
-    const dashSpacer = (dash as unknown as { _dashSpacer?: St.Widget })._dashSpacer;
-    if (dashSpacer) {
-      dashSpacer.visible = true;
-    }
   }
 
   private _applyDockStyle(): void {
