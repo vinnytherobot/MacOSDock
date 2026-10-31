@@ -306,7 +306,6 @@ export class DockManager {
       this._container,
       this._intellihide,
       this._dockHeight,
-      DockManager.MARGIN_BOTTOM,
       this._settings.get_int("animation-duration"),
       this._settings.get_int("show-threshold"),
       this._dockPosition,
@@ -490,6 +489,7 @@ export class DockManager {
 
     if (this._visibility) {
       this._visibility.updateShownY(y);
+      this._visibility.updateDockBounds(x, y, w, h);
     }
 
     if (this._intellihide) {
